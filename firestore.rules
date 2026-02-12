@@ -5,9 +5,21 @@ service cloud.firestore {
     function signedIn() {
       return request.auth != null;
     }
-    
-    function isOwnerOrMissing(resource) {
-      return resource == null || resource.data.uid == request.auth.uid;
+
+    function isOwnerData(data) {
+      return data.uid == request.auth.uid;
+    }
+
+    function isOwnRunId(runId) {
+      return runId == ("run_" + request.auth.uid);
+    }
+
+    function isOwnDailyQuestionnaireDocId(docId) {
+      return docId.matches("^run_" + request.auth.uid + "_\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isOwnResponseDocId(docId) {
+      return docId.matches("^run_" + request.auth.uid + "_\\d{4}-\\d{2}-\\d{2}_" + request.auth.uid + "$");
     }
 
     match /users/{uid} {
@@ -22,30 +34,51 @@ service cloud.firestore {
     }
 
     match /testRuns/{runId} {
-      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
-      allow read: if signedIn() && isOwnerOrMissing(resource);
+      allow create: if signedIn()
+        && isOwnRunId(runId)
+        && isOwnerData(request.resource.data);
+      allow get: if signedIn()
+        && (
+          isOwnRunId(runId) ||
+          (resource != null && isOwnerData(resource.data))
+        );
+      allow list: if false;
       allow update: if signedIn()
+        && isOwnRunId(runId)
         && resource != null
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == resource.data.uid;
+        && isOwnerData(resource.data)
+        && isOwnerData(request.resource.data);
       allow delete: if false;
     }
 
     match /dailyQuestionnaires/{docId} {
       allow create: if signedIn()
-        && request.resource.data.uid == request.auth.uid;
-      allow read: if signedIn() && isOwnerOrMissing(resource);
+        && isOwnDailyQuestionnaireDocId(docId)
+        && isOwnerData(request.resource.data);
+      allow get: if signedIn()
+        && (
+          isOwnDailyQuestionnaireDocId(docId) ||
+          (resource != null && isOwnerData(resource.data))
+        );
+      allow list: if false;
       allow update: if signedIn()
+        && isOwnDailyQuestionnaireDocId(docId)
         && resource != null
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == resource.data.uid;
+        && isOwnerData(resource.data)
+        && isOwnerData(request.resource.data);
       allow delete: if false;
     }
 
     match /responses/{docId} {
       allow create: if signedIn()
-        && request.resource.data.uid == request.auth.uid;
-      allow read: if signedIn() && isOwnerOrMissing(resource);
+        && isOwnResponseDocId(docId)
+        && isOwnerData(request.resource.data);
+      allow get: if signedIn()
+        && (
+          isOwnResponseDocId(docId) ||
+          (resource != null && isOwnerData(resource.data))
+        );
+      allow list: if false;
       allow update, delete: if false;
     }
 

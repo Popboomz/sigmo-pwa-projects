@@ -6,12 +6,9 @@ import { onAuthStateChanged } from "firebase/auth";
 
 import { auth } from "@/lib/firebase";
 import { getDateKeySydney } from "@/lib/dateKey";
+import { getQuestionnaireEngine } from "@/lib/questionnaire/engine/index";
+import { getDataStore } from "@/lib/questionnaire/store/index";
 import type { DailyQuestionnaire } from "@/lib/questionnaire/types";
-import {
-  getOrCreateActiveRun,
-  getOrCreateTodayQuestionnaire,
-  submitTodayResponse,
-} from "@/lib/questionnaire/store";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 export default function TodayPage() {
   const router = useRouter();
   const dateKey = useMemo(() => getDateKeySydney(), []);
+  const store = useMemo(() => getDataStore(), []);
+  const engine = useMemo(() => getQuestionnaireEngine(), []);
   const [uid, setUid] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
 
@@ -49,8 +48,8 @@ export default function TodayPage() {
       setLoading(true);
       setMsg(null);
       try {
-        const run = await getOrCreateActiveRun(uid, dateKey);
-        const todayQ = await getOrCreateTodayQuestionnaire(uid, run, dateKey);
+        const run = await store.getOrCreateActiveRun(uid, dateKey);
+        const todayQ = await store.getOrCreateTodayQuestionnaire(uid, run, dateKey, engine);
         setQ(todayQ);
 
         const init: Record<string, 1 | 2 | 3 | 4 | 5> = {};
@@ -66,7 +65,7 @@ export default function TodayPage() {
         setLoading(false);
       }
     })();
-  }, [uid, dateKey]);
+  }, [uid, dateKey, store, engine]);
 
   const setAnswer = (questionId: string, value: 1 | 2 | 3 | 4 | 5) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -84,7 +83,7 @@ export default function TodayPage() {
         value: answers[qu.id] ?? 3,
       }));
 
-      await submitTodayResponse({
+      await store.submitTodayResponse({
         uid,
         runId: q.runId,
         dateKey: q.dateKey,

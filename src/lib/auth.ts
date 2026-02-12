@@ -1,7 +1,17 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+function getJwtSecret(): string {
+  const jwtSecret =
+    process.env.JWT_SECRET ||
+    (process.env.NODE_ENV === 'production' ? '' : 'your-secret-key-change-in-production');
+
+  if (process.env.NODE_ENV === 'production' && !jwtSecret) {
+    throw new Error('JWT_SECRET must be set in production');
+  }
+
+  return jwtSecret;
+}
 
 export interface JWTPayload {
   userId: string;
@@ -18,12 +28,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '7d' });
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+    return jwt.verify(token, getJwtSecret()) as JWTPayload;
   } catch (error) {
     return null;
   }

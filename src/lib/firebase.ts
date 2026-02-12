@@ -16,6 +16,13 @@ const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "1"
+) {
+  throw new Error("NEXT_PUBLIC_USE_FIREBASE_EMULATOR must be 0 in production");
+}
+
 if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "1") {
   try {
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
