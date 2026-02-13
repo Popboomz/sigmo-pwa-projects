@@ -1,111 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { userManager } from '@/storage/database';
 import { generateToken } from '@/lib/auth';
-import bcrypt from 'bcryptjs';
+import { isAdminEmailAllowed, verifyFirebaseIdToken } from '@/lib/admin-auth';
+
+function extractIdToken(request: NextRequest, body: unknown): string | null {
+  if (typeof body === 'object' && body !== null && 'idToken' in body) {
+    const bodyToken = (body as { idToken?: unknown }).idToken;
+    if (typeof bodyToken === 'string' && bodyToken.trim()) {
+      return bodyToken.trim();
+    }
+  }
+
+  const authorization = request.headers.get('authorization');
+  if (authorization?.startsWith('Bearer ')) {
+    const headerToken = authorization.slice(7).trim();
+    if (headerToken) {
+      return headerToken;
+    }
+  }
+
+  return null;
+}
 
 export async function POST(request: NextRequest) {
+  let body: unknown;
   try {
-    const body = await request.json();
-    const { email, password, provider } = body;
-
-    if (!email || !provider) {
-      return NextResponse.json(
-        { error: 'Email and provider are required' },
-        { status: 400 }
-      );
-    }
-
-    // 查找用户
-    const user = await userManager.getUserByEmail(email);
-
-    // 邮箱密码登录
-    if (provider === 'email') {
-      if (!password) {
-        return NextResponse.json(
-          { error: 'Password is required' },
-          { status: 400 }
-        );
-      }
-
-      if (!user) {
-        return NextResponse.json(
-          { error: 'User not found' },
-          { status: 401 }
-        );
-      }
-
-      // 验证密码
-      if (!user.password || !(await bcrypt.compare(password, user.password))) {
-        return NextResponse.json(
-          { error: 'Invalid email or password' },
-          { status: 401 }
-        );
-      }
-    } else if (provider === 'google') {
-      if (!user) {
-        return NextResponse.json(
-          { error: 'User not found' },
-          { status: 401 }
-        );
-      }
-    } else {
-      return NextResponse.json(
-        { error: 'Invalid provider' },
-        { status: 400 }
-      );
-    }
-
-    // 检查是否是管理员
-    console.log('User object:', JSON.stringify({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      isAdmin: user.isAdmin,
-      isAdminType: typeof user.isAdmin,
-      isAdminValue: user.isAdmin ? 'true' : 'false'
-    }));
-
-    if (!user.isAdmin) {
-      console.error('Admin permission check failed. User isAdmin:', user.isAdmin);
-      return NextResponse.json(
-        { error: 'No admin permission' },
-        { status: 403 }
-      );
-    }
-
-    console.log('Admin permission check passed. User is admin:', user.isAdmin);
-
-    // 生成 JWT token
-    const token = generateToken({
-      userId: user.id,
-      email: user.email,
-      isAdmin: user.isAdmin,
-    });
-
-    return NextResponse.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isAdmin: user.isAdmin,
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('Login error:', message);
-
-    if (message.includes('Database URL not configured') || message.includes('PGDATABASE_URL')) {
-      return NextResponse.json(
-        { error: 'DB_NOT_CONFIGURED', detail: 'Database connection is not configured' },
-        { status: 503 }
-      );
-    }
-
+    body = await request.json();
+  } catch {
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: 'Invalid request body' },
+      { status: 400 }
     );
   }
+
+  const idToken = extractIdToken(request, body);
+  if (!idToken) {
+    return NextResponse.json(
+      { error: 'idToken is required' },
+      { status: 400 }
+    );
+  }
+
+  const verified = await verifyFirebaseIdToken(idToken);
+  if (!verified.ok || !verified.user) {
+    return NextResponse.json(
+      { error: verified.error ?? 'Unable to verify Firebase ID token' },
+      { status: verified.status || 401 }
+    );
+  }
+
+  const email = verified.user.email;
+  if (!email) {
+    return NextResponse.json(
+      { error: 'Admin email is required' },
+      { status: 403 }
+    );
+  }
+
+  if (!isAdminEmailAllowed(email)) {
+    return NextResponse.json(
+      { error: 'No admin permission' },
+      { status: 403 }
+    );
+  }
+
+  const token = generateToken({
+    userId: verified.user.uid,
+    email,
+    isAdmin: true,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    success: true,
+    token,
+    user: {
+      id: verified.user.uid,
+      email,
+      name: verified.user.name ?? email,
+      isAdmin: true,
+    },
+  });
 }

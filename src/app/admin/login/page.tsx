@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, AlertCircle } from 'lucide-react';
+import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +11,41 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { auth } from '@/lib/firebase';
+
+async function exchangeIdToken(idToken: string) {
+  const response = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ idToken }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.token) {
+    throw new Error(data.error || 'Login failed');
+  }
+
+  return data;
+}
+
+function getEmailLoginErrorMessage(err: unknown, fallback: string, invalidPasswordText: string): string {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const code = String((err as { code?: unknown }).code ?? '');
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+      return invalidPasswordText;
+    }
+  }
+
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+
+  return fallback;
+}
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -25,45 +61,25 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          provider: 'email',
-        }),
-      });
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await credential.user.getIdToken();
+      const data = await exchangeIdToken(idToken);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        // 密码错误
-        if (response.status === 401) {
-          setError(data.error || t('admin.errors.invalidPassword'));
-        } else {
-          setError(data.error || t('admin.errors.loginFailed'));
-        }
-        return;
-      }
-
-      if (!data.success) {
-        // 无管理员权限
-        if (data.error === 'No admin permission' || data.isAdmin === false) {
-          setError(t('admin.errors.noAdminPermission') + '. 请联系现有管理员或使用管理员账户登录。');
-        } else {
-          setError(data.error || t('admin.errors.loginFailed'));
-        }
-        return;
-      }
-
-      // 保存 token
       localStorage.setItem('admin_token', data.token);
       router.push('/admin');
-    } catch (err) {
-      setError(t('admin.errors.networkError'));
+    } catch (err: unknown) {
+      const message = getEmailLoginErrorMessage(
+        err,
+        t('admin.errors.networkError'),
+        t('admin.errors.invalidPassword')
+      );
+
+      if (message === 'No admin permission') {
+        setError(t('admin.errors.noAdminPermission'));
+        return;
+      }
+
+      setError(message || t('admin.errors.loginFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -74,31 +90,21 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      // 模拟 Google 登录
-      const response = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: 'user@gmail.com',
-          provider: 'google',
-        }),
-      });
+      const provider = new GoogleAuthProvider();
+      const credential = await signInWithPopup(auth, provider);
+      const idToken = await credential.user.getIdToken();
+      const data = await exchangeIdToken(idToken);
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        setError(data.error || t('admin.errors.loginFailed'));
-        setIsLoading(false);
-        return;
-      }
-
-      // 保存 token
       localStorage.setItem('admin_token', data.token);
       router.push('/admin');
-    } catch (err) {
-      setError(t('admin.errors.networkError'));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      if (message === 'No admin permission') {
+        setError(t('admin.errors.noAdminPermission'));
+        return;
+      }
+      setError(message || t('admin.errors.networkError'));
+    } finally {
       setIsLoading(false);
     }
   };
@@ -165,7 +171,7 @@ export default function AdminLoginPage() {
                   </div>
                 )}
                 <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-md">
-                  <strong>提示：</strong>如果您无法登录，请联系现有管理员获取权限，或使用已注册的管理员账户。
+                  <strong>Note:</strong> If login fails, ask an admin to confirm your email is in the allowlist.
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? t('admin.signingIn') : t('admin.signIn')}
