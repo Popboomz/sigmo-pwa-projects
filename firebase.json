@@ -1,16 +1,6 @@
 {
   "apphosting": [
     {
-      "backendId": "sigmo-preview",
-      "rootDir": ".",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log"
-      ]
-    },
-    {
       "backendId": "sigmo-production",
       "rootDir": ".",
       "ignore": [

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { userManager } from '@/storage/database';
-import { hashPassword, generateToken } from '@/lib/auth';
+import { generateToken } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
 
 export async function POST(request: NextRequest) {
@@ -93,7 +93,16 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Login error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Login error:', message);
+
+    if (message.includes('Database URL not configured') || message.includes('PGDATABASE_URL')) {
+      return NextResponse.json(
+        { error: 'DB_NOT_CONFIGURED', detail: 'Database connection is not configured' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
