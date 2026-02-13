@@ -42,6 +42,10 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: PGDATABASE_URL
+    secret: SIGMO_PGDATABASE_URL_PROD
+    availability:
+      - RUNTIME
   - variable: JWT_SECRET
     secret: SIGMO_JWT_SECRET_PROD
     availability:
