@@ -50,3 +50,7 @@ env:
     secret: SIGMO_JWT_SECRET_PROD
     availability:
       - RUNTIME
+  - variable: ADMIN_EMAIL_ALLOWLIST
+    secret: ADMIN_EMAIL_ALLOWLIST
+    availability:
+      - RUNTIME
