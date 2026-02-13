@@ -101,3 +101,9 @@ Desktop.ini
 # Playwright
 playwright-report/
 test-results/
+
+# Local scratch files
+nul
+tmp-preview-*.png
+.claude/**/__pycache__/
+*.pyc
