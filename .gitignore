@@ -97,3 +97,7 @@ Desktop.ini
 .turbo
 
 .coze-logs
+
+# Playwright
+playwright-report/
+test-results/

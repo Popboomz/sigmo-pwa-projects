@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   },
 
   /* config options here */
-  allowedDevOrigins: ['*.dev.coze.site'],
+  allowedDevOrigins: ['*.dev.coze.site', '127.0.0.1', 'localhost'],
   images: {
     remotePatterns: [
       {

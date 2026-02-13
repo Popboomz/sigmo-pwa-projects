@@ -24,6 +24,51 @@ interface GetQuestionnaireResponse {
   message?: string;
 }
 
+function getTrustedOrigin(request: NextRequest): string {
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const hostAllowlist = process.env.APP_HOST_ALLOWLIST || '';
+  const allowlist = hostAllowlist
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const isAllowedHost = (host: string) => {
+    const hostLower = host.toLowerCase();
+    if (allowlist.length > 0) {
+      return allowlist.some((allowed) => {
+        if (allowed.startsWith('*.')) {
+          const suffix = allowed.slice(1);
+          return hostLower.endsWith(suffix);
+        }
+        return hostLower === allowed;
+      });
+    }
+    return hostLower.endsWith('.hosted.app');
+  };
+
+  if (
+    (forwardedProto === 'https' || forwardedProto === 'http') &&
+    forwardedHost &&
+    /^(?:[a-zA-Z0-9.-]+|\[[a-fA-F0-9:]+\])(?::\d{1,5})?$/.test(forwardedHost)
+  ) {
+    if (process.env.NODE_ENV !== 'production' || isAllowedHost(forwardedHost)) {
+      return `${forwardedProto}://${forwardedHost}`;
+    }
+  }
+
+  // Fallback for local/dev and non-proxied requests.
+  const fallbackUrl = new URL(request.url);
+  if (!['https:', 'http:'].includes(fallbackUrl.protocol) || !fallbackUrl.host) {
+    throw new Error('Unable to determine a trusted request origin');
+  }
+
+  if (process.env.NODE_ENV === 'production' && !isAllowedHost(fallbackUrl.host)) {
+    throw new Error('Request origin is not in the allowlist');
+  }
+
+  return `${fallbackUrl.protocol}//${fallbackUrl.host}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -63,7 +108,8 @@ export async function GET(request: NextRequest) {
     // 如果没有找到，并且是第1天，或者用户指定了天数，则生成新问卷
     if (!questionnaire && targetDayIndex === 1) {
       // 生成第一天问卷
-      const generateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5000'}/api/admin/questions/generate`, {
+      const appOrigin = getTrustedOrigin(request);
+      const generateResponse = await fetch(`${appOrigin}/api/admin/questions/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
