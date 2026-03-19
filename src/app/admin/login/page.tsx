@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { auth } from '@/lib/firebase';
+import { isFirebaseClientConfigured } from '@/lib/firebase-config';
 
 async function exchangeIdToken(idToken: string) {
   const response = await fetch('/api/admin/login', {
@@ -21,6 +22,24 @@ async function exchangeIdToken(idToken: string) {
       Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({ idToken }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.token) {
+    throw new Error(data.error || 'Login failed');
+  }
+
+  return data;
+}
+
+async function exchangeDevCredentials(email: string, password: string) {
+  const response = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
   });
 
   const data = await response.json();
@@ -49,11 +68,26 @@ function getEmailLoginErrorMessage(err: unknown, fallback: string, invalidPasswo
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const useLocalDevLogin =
+    process.env.NODE_ENV !== 'production' && !isFirebaseClientConfigured();
+  const isGoogleLoginAvailable = isFirebaseClientConfigured();
+  const localDevModeMessage =
+    language === 'zh'
+      ? '当前为本地开发模式，未接入真实 Firebase。请使用 .env.local 中配置的本地管理员邮箱和密码登录。'
+      : 'Local development mode is active. Firebase is not configured, so use the admin email and password from .env.local.';
+  const localDevAllowlistMessage =
+    language === 'zh'
+      ? '提示：邮箱还需要在 ADMIN_EMAIL_ALLOWLIST 中。'
+      : 'Note: the email must also be present in ADMIN_EMAIL_ALLOWLIST.';
+  const googleUnavailableMessage =
+    language === 'zh'
+      ? '本地开发模式下未配置 Firebase，Google 登录不可用。'
+      : 'Google sign-in is unavailable until Firebase is configured.';
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,9 +95,13 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      const idToken = await credential.user.getIdToken();
-      const data = await exchangeIdToken(idToken);
+      const data = useLocalDevLogin
+        ? await exchangeDevCredentials(email, password)
+        : await (async () => {
+            const credential = await signInWithEmailAndPassword(auth, email, password);
+            const idToken = await credential.user.getIdToken();
+            return exchangeIdToken(idToken);
+          })();
 
       localStorage.setItem('admin_token', data.token);
       router.push('/admin');
@@ -87,6 +125,11 @@ export default function AdminLoginPage() {
 
   const handleGoogleLogin = async () => {
     setError('');
+    if (!isGoogleLoginAvailable) {
+      setError(googleUnavailableMessage);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -129,11 +172,18 @@ export default function AdminLoginPage() {
           <Tabs defaultValue="email" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="email">{t('admin.emailTab')}</TabsTrigger>
-              <TabsTrigger value="google">{t('admin.googleTab')}</TabsTrigger>
+              <TabsTrigger value="google" disabled={!isGoogleLoginAvailable}>
+                {t('admin.googleTab')}
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="email">
               <form onSubmit={handleEmailLogin} className="space-y-4">
+                {useLocalDevLogin && (
+                  <div className="text-xs text-amber-800 bg-amber-50 p-3 rounded-md">
+                    <strong>{language === 'zh' ? '本地开发：' : 'Local dev:'}</strong> {localDevModeMessage}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="email">{t('admin.email')}</Label>
                   <div className="relative">
@@ -171,7 +221,10 @@ export default function AdminLoginPage() {
                   </div>
                 )}
                 <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-md">
-                  <strong>Note:</strong> If login fails, ask an admin to confirm your email is in the allowlist.
+                  <strong>Note:</strong>{' '}
+                  {useLocalDevLogin
+                    ? localDevAllowlistMessage
+                    : 'If login fails, ask an admin to confirm your email is in the allowlist.'}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? t('admin.signingIn') : t('admin.signIn')}
@@ -182,7 +235,7 @@ export default function AdminLoginPage() {
             <TabsContent value="google">
               <div className="space-y-4">
                 <div className="text-sm text-gray-600 text-center py-4">
-                  {t('admin.googleDescription')}
+                  {isGoogleLoginAvailable ? t('admin.googleDescription') : googleUnavailableMessage}
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
@@ -195,7 +248,7 @@ export default function AdminLoginPage() {
                   variant="outline"
                   className="w-full"
                   onClick={handleGoogleLogin}
-                  disabled={isLoading}
+                  disabled={isLoading || !isGoogleLoginAvailable}
                 >
                   <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                     <path

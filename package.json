@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "bash ./scripts/build.sh",
-    "dev": "bash ./scripts/dev.sh",
+    "build": "node ./scripts/next-runner.js build",
+    "dev": "node ./scripts/next-runner.js dev",
     "dev:test": "cross-env NEXT_PUBLIC_USE_FIREBASE_EMULATOR=1 NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-test NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyDUMMY1234567890 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=demo-test.firebaseapp.com NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=demo-test.appspot.com NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=1234567890 NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef123456 next dev -p 3000",
     "emulators": "node scripts/run-emulators.js",
     "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
-    "start": "bash ./scripts/start.sh",
+    "start": "node ./scripts/next-runner.js start",
     "ts-check": "tsc -p tsconfig.json",
     "generate-icons": "node scripts/generate-icons.js",
     "e2e": "concurrently -k -s first -n TEST,EMU,NEXT \"corepack pnpm exec wait-on http://127.0.0.1:3000 tcp:127.0.0.1:9099 tcp:127.0.0.1:8080 && corepack pnpm exec playwright test\" \"corepack pnpm emulators\" \"corepack pnpm dev:test\""

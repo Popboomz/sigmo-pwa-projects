@@ -26,7 +26,7 @@ export default function TestPage() {
     },
     {
       title: '品牌配色',
-      description: '品牌绿色 #6B8E6F 正常应用',
+      description: '银蓝紫 Y2K 品牌主题正常应用',
       icon: Sparkles,
       status: 'success' as const,
     },
@@ -45,31 +45,31 @@ export default function TestPage() {
   ];
 
   return (
-    <div className="min-h-screen mesh-bg relative overflow-hidden font-body text-primary">
+    <div className="min-h-screen mesh-bg y2k-shell relative overflow-hidden font-body text-primary">
       {/* Floating Gradients */}
-      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/8 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
-      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/5 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
+      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(122,168,255,0.14)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
+      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(213,192,255,0.16)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
 
       {/* Navigation */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass rounded-2xl shadow-sm z-50 px-6 py-3 animate-enter">
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass y2k-nav rounded-2xl shadow-sm z-50 px-6 py-3 animate-enter">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
               <span className="text-2xl text-primary font-display font-bold">Σ</span>
             </div>
-            <div className="font-display font-bold text-xl tracking-tight text-primary">
+            <div className="font-display font-bold text-xl tracking-tight brand-wordmark">
               {isClient ? t('nav.brand') : 'SIGMÖ'}
             </div>
           </div>
           <div className="flex gap-1 sm:gap-2">
             <Link href="/" className="group">
-              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link">
+              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link y2k-ghost">
                 <Home className="w-4 h-4 flex-shrink-0" />
                 <span className="hidden sm:inline">{t('nav.home')}</span>
               </Button>
             </Link>
             <Link href="/collection">
-              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link">
+              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link y2k-ghost">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span className="hidden sm:inline">测试页面</span>
               </Button>
@@ -83,8 +83,8 @@ export default function TestPage() {
       <main className="max-w-4xl mx-auto px-6 py-16 pt-32 relative z-10">
         {/* Header */}
         <div className="text-center mb-12 animate-enter">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#6B8E6F] rounded-2xl mb-4 shadow-lg shadow-[#6B8E6F]/25">
-            <Sparkles className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 brand-tile">
+            <Sparkles className="w-8 h-8 text-[var(--y2k-blue)]" />
           </div>
           <h1 className="text-4xl font-bold text-primary mb-2 tracking-tight font-display">
             测试页面
@@ -103,8 +103,8 @@ export default function TestPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-xl ${item.status === 'success' ? 'bg-[#6B8E6F]/10' : 'bg-muted'}`}>
-                        <Icon className={`w-5 h-5 ${item.status === 'success' ? 'text-[#6B8E6F]' : 'text-muted-foreground'}`} />
+                      <div className={`p-2 rounded-xl ${item.status === 'success' ? 'brand-tile' : 'bg-muted'}`}>
+                        <Icon className={`w-5 h-5 ${item.status === 'success' ? 'text-[var(--y2k-blue)]' : 'text-muted-foreground'}`} />
                       </div>
                       <div>
                         <CardTitle className="text-lg font-display">{item.title}</CardTitle>
@@ -112,7 +112,7 @@ export default function TestPage() {
                       </div>
                     </div>
                     {item.status === 'success' && (
-                      <Badge variant="secondary" className="bg-[#6B8E6F]/10 text-[#6B8E6F] hover:bg-[#6B8E6F]/20">
+                      <Badge variant="secondary" className="y2k-chip">
                         通过
                       </Badge>
                     )}
@@ -131,7 +131,7 @@ export default function TestPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-3">
-              <Button className="bg-[#6B8E6F] hover:bg-[#5E8062]">
+              <Button className="y2k-button">
                 主要按钮
               </Button>
               <Button variant="secondary">
@@ -161,9 +161,9 @@ export default function TestPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <div className="h-16 rounded-xl bg-[#6B8E6F] shadow-lg shadow-[#6B8E6F]/25" />
-                <p className="text-xs font-mono text-muted-foreground text-center">#6B8E6F</p>
-                <p className="text-xs text-center">品牌绿</p>
+                <div className="h-16 rounded-xl brand-tile" />
+                <p className="text-xs font-mono text-muted-foreground text-center">Y2K Chrome</p>
+                <p className="text-xs text-center">品牌高光</p>
               </div>
               <div className="space-y-2">
                 <div className="h-16 rounded-xl bg-[#000000] shadow-lg" />

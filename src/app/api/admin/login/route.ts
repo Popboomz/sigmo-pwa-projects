@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateToken } from '@/lib/auth';
 import { isAdminEmailAllowed, verifyFirebaseIdToken } from '@/lib/admin-auth';
+import { isLocalDevAdminLoginEnabled } from '@/lib/firebase-config';
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
 
 function extractIdToken(request: NextRequest, body: unknown): string | null {
   if (typeof body === 'object' && body !== null && 'idToken' in body) {
@@ -21,6 +26,49 @@ function extractIdToken(request: NextRequest, body: unknown): string | null {
   return null;
 }
 
+function extractEmailPassword(body: unknown): { email: string; password: string } | null {
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+
+  const email = 'email' in body ? (body as { email?: unknown }).email : null;
+  const password = 'password' in body ? (body as { password?: unknown }).password : null;
+
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return null;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || !password.trim()) {
+    return null;
+  }
+
+  return {
+    email: normalizedEmail,
+    password,
+  };
+}
+
+function buildAdminResponse(email: string, userId: string) {
+  const token = generateToken({
+    userId,
+    email,
+    isAdmin: true,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    success: true,
+    token,
+    user: {
+      id: userId,
+      email,
+      name: email,
+      isAdmin: true,
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
@@ -32,8 +80,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const emailPassword = extractEmailPassword(body);
+  if (emailPassword && isLocalDevAdminLoginEnabled()) {
+    const expectedEmail = normalizeEmail(process.env.DEV_ADMIN_EMAIL || '');
+    const expectedPassword = process.env.DEV_ADMIN_PASSWORD || '';
+
+    if (emailPassword.email !== expectedEmail || emailPassword.password !== expectedPassword) {
+      return NextResponse.json(
+        { error: 'Invalid email or password' },
+        { status: 401 }
+      );
+    }
+
+    if (!isAdminEmailAllowed(emailPassword.email)) {
+      return NextResponse.json(
+        { error: 'No admin permission' },
+        { status: 403 }
+      );
+    }
+
+    return buildAdminResponse(emailPassword.email, 'local-dev-admin');
+  }
+
   const idToken = extractIdToken(request, body);
   if (!idToken) {
+    if (process.env.NODE_ENV !== 'production') {
+      return NextResponse.json(
+        { error: 'Firebase is not configured for local development. Use the configured local admin credentials instead.' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'idToken is required' },
       { status: 400 }
@@ -63,21 +140,5 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const token = generateToken({
-    userId: verified.user.uid,
-    email,
-    isAdmin: true,
-  });
-
-  return NextResponse.json({
-    ok: true,
-    success: true,
-    token,
-    user: {
-      id: verified.user.uid,
-      email,
-      name: verified.user.name ?? email,
-      isAdmin: true,
-    },
-  });
+  return buildAdminResponse(email, verified.user.uid);
 }

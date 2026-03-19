@@ -4,13 +4,14 @@ import { eq } from 'drizzle-orm';
 import { getDb } from 'coze-coding-dev-sdk';
 import { questionnaires, questionnaireAnswers, logs } from '@/storage/database/shared/schema';
 import { verifyToken, extractTokenFromRequest } from '@/lib/auth';
+import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
+import { deleteLocalProtocol, getLocalProtocolById } from '@/lib/local-admin-store';
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // 验证token
     const token = extractTokenFromRequest(request);
     if (!token) {
       return NextResponse.json(
@@ -29,7 +30,24 @@ export async function DELETE(
 
     const { id: protocolId } = await params;
 
-    // 验证协议是否存在
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const protocol = await getLocalProtocolById(protocolId);
+      if (!protocol) {
+        return NextResponse.json(
+          { error: 'Protocol not found' },
+          { status: 404 }
+        );
+      }
+
+      await deleteLocalProtocol(protocolId);
+
+      return NextResponse.json({
+        success: true,
+        message: 'Protocol deleted successfully',
+        source: 'local-dev-store',
+      });
+    }
+
     const protocol = await protocolManager.getProtocolById(protocolId);
     if (!protocol) {
       return NextResponse.json(
@@ -40,23 +58,18 @@ export async function DELETE(
 
     const db = await getDb();
 
-    // 级联删除协议相关的数据
-    // 1. 删除问卷答案
     await db
       .delete(questionnaireAnswers)
       .where(eq(questionnaireAnswers.protocolId, protocolId));
 
-    // 2. 删除问卷
     await db
       .delete(questionnaires)
       .where(eq(questionnaires.protocolId, protocolId));
 
-    // 3. 删除日志
     await db
       .delete(logs)
       .where(eq(logs.protocolId, protocolId));
 
-    // 4. 删除协议本身
     await protocolManager.deleteProtocol(protocolId);
 
     return NextResponse.json({

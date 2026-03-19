@@ -40,3 +40,22 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: AI_PROVIDER
+    value: "openai"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: AI_API_BASE
+    value: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: AI_MODEL
+    value: "gemini-2.5-flash"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: AI_API_KEY
+    secret: SIGMO_AI_API_KEY_PREVIEW
+    availability:
+      - RUNTIME

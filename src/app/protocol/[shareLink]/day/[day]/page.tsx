@@ -9,14 +9,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-
-interface StructuredScores {
-  odor: number;
-  dust: number;
-  clumping: number;
-  comfort: number;
-  cleanup: number;
-}
+import {
+  calculateStructuredScoresFromAnswers,
+  type StructuredScores,
+} from '@/lib/questionnaire/themes';
 
 interface Question {
   id: string;
@@ -68,40 +64,13 @@ export default function ProtocolQuestionnaireDayPage() {
    * 根据问题的 theme 映射到 5 维度评分
    */
   const buildStructuredScores = (questions: Question[], answers: { [key: string]: number | undefined }): StructuredScores => {
-    const defaultScore = 3; // 默认中评
-
-    const scores: StructuredScores = {
-      odor: defaultScore,
-      dust: defaultScore,
-      clumping: defaultScore,
-      comfort: defaultScore,
-      cleanup: defaultScore,
-    };
-
-    // 映射表：theme -> dimension
-    const themeMap: Record<string, keyof StructuredScores> = {
-      'odor_control': 'odor',
-      'dust_level': 'dust',
-      'clumping': 'clumping',
-      'comfort': 'comfort',
-      'cleanup': 'cleanup',
-      'tracking': 'dust', // 带出归类到扬尘
-      'urine_absorb': 'clumping', // 吸收归类到结团
-      'appearance': 'clumping', // 外观归类到结团
-    };
-
-    questions.forEach((q) => {
-      const score = answers[q.id];
-      if (score !== undefined) {
-        const theme = q.theme || '';
-        const dimension = themeMap[theme];
-        if (dimension) {
-          scores[dimension] = score;
-        }
-      }
-    });
-
-    return scores;
+    return calculateStructuredScoresFromAnswers(
+      questions.map((question) => ({
+        score: answers[question.id] ?? 3,
+        theme: question.theme,
+      })),
+      3,
+    );
   };
 
   useEffect(() => {
@@ -184,7 +153,7 @@ export default function ProtocolQuestionnaireDayPage() {
       }
 
       setOptimizedRemark(data.data.optimizedText);
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: '优化失败，请重试' });
     } finally {
       setIsOptimizing(false);
@@ -244,7 +213,7 @@ export default function ProtocolQuestionnaireDayPage() {
       setTimeout(() => {
         router.push(`/protocol/${shareLink}`);
       }, 1500);
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: '提交失败，请重试' });
     } finally {
       setIsSubmitting(false);
@@ -253,9 +222,9 @@ export default function ProtocolQuestionnaireDayPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#F7F5F0] flex items-center justify-center">
+      <div className="min-h-screen mesh-bg y2k-shell flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#4A7C59] mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--y2k-blue)] mx-auto mb-4"></div>
           <p className="text-gray-600">加载中...</p>
         </div>
       </div>
@@ -267,22 +236,22 @@ export default function ProtocolQuestionnaireDayPage() {
   const testPeriodDays = todayResponse?.testPeriodDays || 21;
 
   return (
-    <div className="min-h-screen bg-[#F7F5F0]">
+    <div className="min-h-screen mesh-bg y2k-shell">
       {/* Header */}
-      <div className="bg-[#F7F5F0] border-b border-[rgba(74,124,89,0.1)] sticky top-0 z-10">
+      <div className="glass y2k-nav border-b border-[rgba(122,168,255,0.14)] sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Button
               variant="ghost"
               onClick={() => router.push(`/protocol/${shareLink}`)}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 y2k-ghost"
             >
               <ArrowLeft className="w-4 h-4" />
               返回
             </Button>
             <div className="text-center">
               <h1 className="text-lg font-bold text-[#1A1A1A]">产品测试</h1>
-              <p className="text-xs text-[#6B7280]">
+              <p className="text-xs text-[color:var(--brand-medium-gray)] font-medium">
                 第 {testDay} 天 / 共 {testPeriodDays} 天
               </p>
             </div>
@@ -316,7 +285,7 @@ export default function ProtocolQuestionnaireDayPage() {
           <div className="space-y-6">
             {/* Questions */}
             <Card
-              className="rounded-[20px] border-[rgba(74,124,89,0.1)]"
+              className="rounded-[20px] y2k-panel y2k-question-card border-[rgba(122,168,255,0.14)]"
               style={{
                 background: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(10px)',
@@ -324,10 +293,10 @@ export default function ProtocolQuestionnaireDayPage() {
             >
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" style={{ color: '#4A7C59' }} />
+                  <FileText className="w-5 h-5 text-[var(--y2k-blue)]" />
                   第 {testDay} 天问卷
                 </CardTitle>
-                <CardDescription className="text-[#6B7280]">
+                <CardDescription className="text-[color:var(--brand-dark-gray)]">
                   请根据今天的实际使用情况，如实回答以下问题
                 </CardDescription>
               </CardHeader>
@@ -352,10 +321,10 @@ export default function ProtocolQuestionnaireDayPage() {
                         <div className="flex-1">
                           <p className="text-base font-medium text-[#1A1A1A]">{questionTitle}</p>
                           {question.description && (
-                            <p className="text-sm text-[#6B7280] mt-1">{question.description}</p>
+                            <p className="text-sm text-[color:var(--brand-medium-gray)] mt-1">{question.description}</p>
                           )}
                           {questionTheme && (
-                            <Badge variant="secondary" className="mt-2 text-xs">
+                            <Badge variant="secondary" className="mt-2 text-xs y2k-chip">
                               {questionTheme}
                             </Badge>
                           )}
@@ -373,9 +342,9 @@ export default function ProtocolQuestionnaireDayPage() {
                           return (
                             <div key={option} className="space-y-1">
                               <div
-                                className={`flex flex-col items-center p-3 border-2 rounded-lg transition-colors cursor-pointer ${
+                                className={`flex flex-col items-center p-3 border-2 rounded-lg transition-colors cursor-pointer y2k-score-option ${
                                   selectedScore === score
-                                    ? 'border-[#4A7C59] bg-[rgba(74,124,89,0.1)]'
+                                    ? 'is-selected border-[var(--y2k-blue)] bg-[rgba(122,168,255,0.12)]'
                                     : 'border-gray-200 hover:border-gray-300'
                                 }`}
                                 onClick={() => setAnswers({ ...answers, [question.id]: score })}
@@ -409,7 +378,7 @@ export default function ProtocolQuestionnaireDayPage() {
 
             {/* Remark */}
             <Card
-              className="rounded-[20px] border-[rgba(74,124,89,0.1)]"
+              className="rounded-[20px] y2k-panel y2k-question-card border-[rgba(122,168,255,0.14)]"
               style={{
                 background: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(10px)',
@@ -417,7 +386,7 @@ export default function ProtocolQuestionnaireDayPage() {
             >
               <CardHeader>
                 <CardTitle>使用感受备注</CardTitle>
-                <CardDescription className="text-[#6B7280]">
+                <CardDescription className="text-[color:var(--brand-dark-gray)]">
                   可以详细描述今天的使用感受（可选）
                 </CardDescription>
               </CardHeader>
@@ -441,7 +410,7 @@ export default function ProtocolQuestionnaireDayPage() {
                     variant="outline"
                     onClick={handleOptimizeRemark}
                     disabled={isOptimizing}
-                    className="w-full flex items-center justify-center gap-2"
+                    className="w-full flex items-center justify-center gap-2 y2k-ghost"
                   >
                     {isOptimizing ? (
                       <>
@@ -458,7 +427,7 @@ export default function ProtocolQuestionnaireDayPage() {
                 )}
 
                 {optimizedRemark && (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="p-4 rounded-lg y2k-question-card">
                     <p className="text-xs font-medium text-blue-900 mb-2">
                       AI优化后的备注
                     </p>
@@ -474,11 +443,11 @@ export default function ProtocolQuestionnaireDayPage() {
             <Button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="w-full rounded-[14px] font-semibold text-base"
+              className="w-full rounded-[14px] font-semibold text-base y2k-button"
               style={{
                 padding: '16px',
-                background: 'linear-gradient(135deg, #4A7C59, #3A6347)',
-                boxShadow: '0 4px 16px rgba(74, 124, 89, 0.25)',
+                background: 'linear-gradient(135deg, #7ee8ff, #6da7ff 42%, #d0b6ff)',
+                boxShadow: '0 10px 24px rgba(108, 167, 255, 0.24)',
               }}
               size="lg"
             >
@@ -496,14 +465,14 @@ export default function ProtocolQuestionnaireDayPage() {
             </Button>
           </div>
         ) : (
-          <Card className="rounded-[20px] border-[rgba(74,124,89,0.1)]">
+          <Card className="rounded-[20px] border-[rgba(122,168,255,0.14)] y2k-panel y2k-question-card">
             <CardContent className="py-12 text-center">
               <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600">问卷加载失败或不存在</p>
               <Button
                 variant="outline"
                 onClick={() => router.push(`/protocol/${shareLink}`)}
-                className="mt-4"
+                className="mt-4 y2k-ghost"
               >
                 返回
               </Button>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { generateJson } from "@/lib/ai/chatgpt";
 import { validateAndNormalizeQuestions } from "@/lib/questionnaire/engine/validator";
 import type { Question } from "@/lib/questionnaire/types";
 
@@ -30,14 +31,6 @@ function extractQuestionsFromText(content: string): ProviderQuestion[] {
 }
 
 async function generateByOpenAI(dayIndex: number): Promise<ProviderQuestion[]> {
-  const apiKey = process.env.AI_API_KEY;
-  if (!apiKey) {
-    throw new Error("AI_API_KEY is required when AI_PROVIDER=openai");
-  }
-
-  const model = process.env.AI_MODEL || "gpt-4o-mini";
-  const endpoint = process.env.AI_API_BASE || "https://api.openai.com/v1/chat/completions";
-
   const prompt = [
     "Generate exactly 5 questionnaire items for cat litter performance evaluation.",
     `Day index: ${dayIndex}.`,
@@ -46,37 +39,13 @@ async function generateByOpenAI(dayIndex: number): Promise<ProviderQuestion[]> {
     "Use performance-evaluable phrasing only.",
   ].join(" ");
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: "You are a strict JSON generator." },
-        { role: "user", content: prompt },
-      ],
-      response_format: { type: "json_object" },
-    }),
+  const payload = await generateJson<{ questions?: ProviderQuestion[] }>({
+    systemPrompt: "You are a strict JSON generator.",
+    userPrompt: prompt,
+    temperature: 0.2,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${errorText.slice(0, 240)}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenAI response missing message.content");
-  }
-
-  return extractQuestionsFromText(content);
+  return extractQuestionsFromText(JSON.stringify(payload));
 }
 
 export async function POST(request: NextRequest) {

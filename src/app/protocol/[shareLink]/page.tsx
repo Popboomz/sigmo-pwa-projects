@@ -25,6 +25,22 @@ interface TodayQuestionsResponse {
   testPeriodDays?: number;
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, timeoutMs = 30000, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new DOMException('Request timed out', 'AbortError'));
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export default function ProtocolLandingPage() {
   const params = useParams();
   const shareLink = params.shareLink as string;
@@ -63,13 +79,7 @@ export default function ProtocolLandingPage() {
       setLoadError(null);
 
       // 加载协议信息（添加10秒超时）
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      const protocolRes = await fetch(`/api/public/protocol/${shareLink}`, {
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
+      const protocolRes = await fetchWithTimeout(`/api/public/protocol/${shareLink}`);
 
       if (!protocolRes.ok) {
         if (protocolRes.status === 404) {
@@ -82,13 +92,7 @@ export default function ProtocolLandingPage() {
       setProtocol(protocolData.data);
 
       // 获取今日问卷和进度信息（添加10秒超时）
-      const controller2 = new AbortController();
-      const timeoutId2 = setTimeout(() => controller2.abort(), 10000);
-
-      const todayRes = await fetch(`/api/public/questionnaire/today?shareLink=${shareLink}`, {
-        signal: controller2.signal
-      });
-      clearTimeout(timeoutId2);
+      const todayRes = await fetchWithTimeout(`/api/public/questionnaire/today?shareLink=${shareLink}`);
       if (todayRes.ok) {
         const todayData: TodayQuestionsResponse = await todayRes.json();
 
@@ -106,7 +110,9 @@ export default function ProtocolLandingPage() {
         }
       }
     } catch (error: any) {
-      console.error('Failed to load protocol data:', error);
+      if (error?.name !== 'AbortError' && error?.message !== 'Failed to fetch') {
+        console.error('Failed to load protocol data:', error);
+      }
       
       // 提供更详细的错误信息
       if (error.name === 'AbortError') {
@@ -127,7 +133,7 @@ export default function ProtocolLandingPage() {
     try {
       // 调用 today 接口获取今日问卷（添加10秒超时）
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(`/api/public/questionnaire/today?shareLink=${shareLink}`, {
         signal: controller.signal
@@ -149,7 +155,9 @@ export default function ProtocolLandingPage() {
       const targetUrl = `/protocol/${shareLink}/day/${data.testDay}`;
       router.push(targetUrl);
     } catch (error: any) {
-      console.error('Failed to start test:', error);
+      if (error?.name !== 'AbortError' && error?.message !== 'Failed to fetch') {
+        console.error('Failed to start test:', error);
+      }
       
       let errorMessage = '加载问卷失败，请重试';
       if (error.name === 'AbortError') {
@@ -261,7 +269,7 @@ export default function ProtocolLandingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen mesh-bg flex items-center justify-center">
+      <div className="min-h-screen mesh-bg y2k-shell flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-muted-foreground">加载中...</p>
@@ -272,9 +280,9 @@ export default function ProtocolLandingPage() {
 
   if (loadError || !protocol) {
     return (
-      <div className="min-h-screen mesh-bg flex items-center justify-center p-4">
+      <div className="min-h-screen mesh-bg y2k-shell flex items-center justify-center p-4">
         <div className="max-w-md w-full">
-          <Card className="border-red-200 premium-card">
+          <Card className="border-red-200 premium-card y2k-panel">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -310,22 +318,26 @@ export default function ProtocolLandingPage() {
   const progress = getProgress();
   const { completedDays, testPeriodDays } = progressInfo;
   const productName = protocol?.productName || '产品';
+  const protocolTitle = protocol?.title || '产品测试';
+  const protocolDescription =
+    protocol?.description?.trim() ||
+    '请根据真实使用体验完成测试。你的评分、吐槽和建议都会直接用于后续产品优化。';
 
   return (
-    <div className="min-h-screen mesh-bg relative overflow-hidden">
+    <div className="min-h-screen mesh-bg y2k-shell relative overflow-hidden">
       {/* Floating Gradients */}
-      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/8 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
-      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/5 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
+      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(122,168,255,0.14)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
+      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(213,192,255,0.16)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
 
       {/* Header */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass rounded-2xl shadow-sm z-50 px-6 py-3">
+      <div className="fixed top-3 left-1/2 -translate-x-1/2 w-[calc(100%-20px)] max-w-[1200px] glass y2k-nav rounded-2xl shadow-sm z-50 px-4 py-2.5 sm:top-4 sm:w-[calc(100%-32px)] sm:px-6 sm:py-3">
         <div className="flex justify-between items-center">
           {/* Logo and Brand Name - Centered */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
-              <span className="text-2xl text-primary font-display font-bold">Σ</span>
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
+              <span className="text-2xl font-display font-bold brand-mark-text">Σ</span>
             </div>
-            <div className="font-display font-bold text-xl tracking-tight text-primary">
+            <div className="font-display font-bold text-lg sm:text-xl tracking-tight brand-wordmark">
               SIGMÖ
             </div>
           </div>
@@ -335,83 +347,136 @@ export default function ProtocolLandingPage() {
               variant="ghost"
               size="sm"
               onClick={handleShare}
-              className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2"
+              className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 y2k-ghost"
             >
               <Share2 className="w-4 h-4" />
               <span className="hidden sm:inline">分享</span>
             </Button>
-            <Badge variant="outline" className="text-sm bg-white/50 border-border">
-              {protocol?.title || '测试协议'}
+            <Badge variant="outline" className="max-w-[120px] sm:max-w-none truncate text-xs sm:text-sm y2k-chip">
+              {productName}
             </Badge>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 py-6 pt-28 relative z-10">
+      <div className="max-w-4xl mx-auto px-4 py-5 pt-24 sm:py-6 sm:pt-28 relative z-10">
         {/* Welcome Card */}
-        <Card className="mb-6 premium-card">
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-primary font-display">
-              欢迎参与产品测试。
-            </CardTitle>
-            <CardDescription className="text-muted-foreground">
-              每天一点反馈，我们就离更好的产品近一点。<br />
-              一句吐槽，也可能帮到我们。
-            </CardDescription>
+        <Card className="mb-6 premium-card y2k-panel">
+          <CardHeader className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="y2k-chip text-primary">
+                {protocolTitle}
+              </Badge>
+              <Badge variant="outline" className="y2k-chip">
+                {testPeriodDays} 天测试周期
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              <CardTitle className="text-lg sm:text-xl font-semibold text-primary font-display leading-tight">
+                {productName}
+              </CardTitle>
+              <p className="text-sm text-primary/90 font-medium">
+                正在参与：{protocolTitle}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl px-3 py-3 y2k-stat">
+                <div className="text-[11px] text-[color:var(--brand-medium-gray)] font-semibold mb-1">测试名称</div>
+                <div className="text-sm font-medium text-primary leading-5 line-clamp-2">{protocolTitle}</div>
+              </div>
+              <div className="rounded-2xl px-3 py-3 y2k-stat">
+                <div className="text-[11px] text-[color:var(--brand-medium-gray)] font-semibold mb-1">测试产品</div>
+                <div className="text-sm font-medium text-primary leading-5 line-clamp-2">{productName}</div>
+              </div>
+              <div className="rounded-2xl px-3 py-3 y2k-stat col-span-2 sm:col-span-1">
+                <div className="text-[11px] text-[color:var(--brand-medium-gray)] font-semibold mb-1">测试周期</div>
+                <div className="text-sm font-medium text-primary leading-5">{testPeriodDays} 天</div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-white/70 px-4 py-3">
+              <div className="text-xs font-medium text-primary mb-2">测试说明</div>
+              <CardDescription className="text-sm text-[color:var(--brand-dark-gray)] whitespace-pre-line leading-7">
+                {protocolDescription}
+              </CardDescription>
+            </div>
           </CardHeader>
         </Card>
 
-        {/* Start Test Card */}
-        <Card className="mb-6 premium-card">
+        <Card className="hidden">
           <CardHeader>
+            <CardTitle className="text-lg font-semibold text-primary font-display">
+              测试信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl border border-border/70 bg-white/50 p-4">
+              <div className="text-xs text-muted-foreground mb-2">测试名称</div>
+              <div className="text-sm font-medium text-primary leading-6">{protocolTitle}</div>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-white/50 p-4">
+              <div className="text-xs text-muted-foreground mb-2">测试产品</div>
+              <div className="text-sm font-medium text-primary leading-6">{productName}</div>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-white/50 p-4">
+              <div className="text-xs text-muted-foreground mb-2">测试周期</div>
+              <div className="text-sm font-medium text-primary leading-6">{testPeriodDays} 天</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Start Test Card */}
+        <Card className="mb-6 premium-card y2k-panel">
+          <CardHeader className="space-y-2">
             <CardTitle
-              className="flex items-center gap-2.5"
+              className="flex items-center gap-2.5 text-lg"
               style={{
                 fontFamily: 'Playfair Display, serif',
-                fontSize: '1.125rem',
                 fontWeight: '600',
                 color: '#1A1A1A'
               }}
             >
-              <Play className="w-5 h-5" style={{ color: '#4A7C59' }} />
+              <Play className="w-5 h-5 text-[var(--y2k-blue)]" />
               开始测试
             </CardTitle>
-            <CardDescription className="text-[#6B7280]">
-              填写今日的问卷反馈
+            <CardDescription className="text-[color:var(--brand-dark-gray)] text-sm leading-7">
+              今天填写 1 次反馈，系统会根据你的历史评分继续追踪问题变化。
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <div className="rounded-2xl border border-border/70 y2k-stat px-4 py-3 text-sm text-primary">
+              当前进度 {completedDays}/{testPeriodDays} 天
+            </div>
             <Button
               onClick={handleStartTest}
               disabled={isStarting || completedDays >= testPeriodDays}
-              className="w-full rounded-[14px] font-semibold text-base transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(74,124,89,0.35)] active:translate-y-0 text-white"
+              className="w-full rounded-[14px] font-semibold text-base transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(108,167,255,0.32)] active:translate-y-0 text-white y2k-button"
               style={{
                 padding: '16px',
-                background: 'linear-gradient(135deg, #4A7C59, #3A6347)',
-                boxShadow: '0 4px 16px rgba(74, 124, 89, 0.25)'
+                background: 'linear-gradient(135deg, #7ee8ff, #6da7ff 42%, #d0b6ff)',
+                boxShadow: '0 10px 24px rgba(108, 167, 255, 0.24)'
               }}
               size="lg"
             >
               {isStarting ? '加载中...' : completedDays >= testPeriodDays ? '测试已完成' : '开始填写'}
             </Button>
             {completedDays >= testPeriodDays && (
-              <p className="text-sm text-primary mt-2 text-center font-medium">
-                ✅ 所有测试日已完成
+              <p className="text-sm text-primary text-center font-medium">
+                所有测试日已完成
               </p>
             )}
           </CardContent>
         </Card>
 
         {/* Progress Card */}
-        <Card className="mb-6 premium-card">
+        <Card className="mb-6 premium-card y2k-panel">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2.5 text-xl font-semibold text-primary font-display">
                 <Calendar className="w-5 h-5 text-primary" />
                 测试进度
               </CardTitle>
-              <Badge variant="secondary" className="px-3 py-1 text-xs font-semibold">
+              <Badge variant="secondary" className="px-3 py-1 text-xs font-semibold y2k-chip">
                 {progress}%
               </Badge>
             </div>
@@ -479,7 +544,7 @@ export default function ProtocolLandingPage() {
         </Card>
 
         {/* End Test Card */}
-        <Card className="mb-6 premium-card">
+        <Card className="mb-6 premium-card y2k-panel">
           <CardHeader>
             <CardTitle className="flex items-center gap-2.5 text-xl font-semibold text-primary font-display">
               <Square className="w-5 h-5 text-destructive" />
@@ -494,7 +559,7 @@ export default function ProtocolLandingPage() {
               onClick={() => setShowEndDialog(true)}
               variant="outline"
               disabled={completedDays >= testPeriodDays}
-              className="w-full rounded-xl font-medium transition-all duration-200 hover:border-destructive hover:text-destructive hover:bg-destructive/5"
+              className="w-full rounded-xl font-medium transition-all duration-200 hover:border-destructive hover:text-destructive hover:bg-destructive/5 y2k-ghost"
               size="lg"
             >
               提前结束测试

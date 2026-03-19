@@ -1,13 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { messageManager } from '@/storage/database';
+import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
+import { deleteLocalMessage } from '@/lib/local-admin-store';
 
-// DELETE - 删除留言
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const deletedMessage = await deleteLocalMessage(id);
+
+      if (!deletedMessage) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Message not found',
+          },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: deletedMessage,
+        source: 'local-dev-store',
+      });
+    }
 
     const deletedMessage = await messageManager.deleteMessage(id);
 

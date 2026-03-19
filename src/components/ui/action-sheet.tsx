@@ -124,7 +124,7 @@ export function actionSheet({
     confirmBtn.style.cssText = `
       width: 100%;
       padding: 14px;
-      background: ${destructive ? '#EF4444' : '#4A7C59'};
+      background: ${destructive ? '#EF4444' : 'linear-gradient(135deg, #7ee8ff, #6da7ff 42%, #d0b6ff)'};
       border: none;
       border-radius: 12px;
       color: white;

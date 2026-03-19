@@ -1,23 +1,30 @@
-import { LLMClient, Config } from 'coze-coding-dev-sdk';
-import { QuestionTextValidator, QuestionWithValidation } from './questionTextValidator';
-import { QuestionTemplateManager, PreviousDayScores, QuestionTemplate } from './questionTemplateManager';
+import { generateJson } from '@/lib/ai/chatgpt';
+import { sanitizeRemarkForAnalysis } from '@/lib/questionnaire/remarkSanitizer';
+import {
+  CANONICAL_THEME_ORDER,
+  createStructuredScores,
+  normalizeTheme,
+  type CanonicalTheme,
+  type StructuredScores,
+} from '@/lib/questionnaire/themes';
+
+import {
+  FocusAngle,
+  QuestionTemplate,
+  QuestionTemplateManager,
+  RiskLevel,
+  TrendStatus,
+} from './questionTemplateManager';
+import { QuestionTextValidator } from './questionTextValidator';
 
 export interface Question {
   id: string;
-  theme: string;
+  theme: CanonicalTheme;
   title: string;
   options: string[];
   followupRule: string;
   validation?: import('./questionTextValidator').ValidationResult;
   source?: 'model' | 'fallback';
-}
-
-interface StructuredScores {
-  odor: number;      // 除臭感受
-  dust: number;      // 扬尘感受
-  clumping: number;  // 结团体验
-  comfort: number;   // 猫咪接受度
-  cleanup: number;   // 清理轻松度
 }
 
 interface PreviousDayAnswer {
@@ -26,6 +33,42 @@ interface PreviousDayAnswer {
   question: string;
   theme?: string;
   structuredScores?: StructuredScores;
+}
+
+export interface HistoricalAnswerEntry {
+  testDay: number;
+  structuredScores?: Partial<StructuredScores> | null;
+  answers?: PreviousDayAnswer[];
+  remark?: string | null;
+}
+
+export interface HistoricalQuestionEntry {
+  testDay: number;
+  id: string;
+  theme?: string | null;
+  title: string;
+}
+
+interface ThemeHistorySnapshot {
+  theme: CanonicalTheme;
+  baselineScore: number;
+  latestScore: number;
+  recentScores: number[];
+  scoreHistory: Array<{ testDay: number; score: number }>;
+  minScore: number;
+  maxScore: number;
+  averageScore: number;
+  questionTitles: string[];
+  recentRemarkSignals: string[];
+}
+
+export interface ThemeTrendDiagnosis {
+  theme: CanonicalTheme;
+  trendStatus: TrendStatus;
+  riskLevel: RiskLevel;
+  focusAngle: FocusAngle;
+  evidence: string;
+  remarkSignal: string;
 }
 
 interface DailyQuestionnaireResponse {
@@ -37,6 +80,8 @@ interface DailyQuestionnaireResponse {
   logicBranch: LogicBranch;
   lifecyclePhase: LifecyclePhase;
   avoidRepeatCheck: string;
+  generationStrategy: 'baseline' | 'ai-diagnosis' | 'rule-fallback';
+  questionSourceDetails?: string[];
 }
 
 export type MaterialState = 'new_bag' | 'normal' | 'nearing_end' | 'ended';
@@ -47,51 +92,17 @@ interface DynamicQuestionnaireConfig {
   productName: string;
   dayIndex: number;
   testDurationDays: number;
-  currentMaterialState?: MaterialState; // 改为可选
+  currentMaterialState?: MaterialState;
   previousAnswers?: PreviousDayAnswer[];
   historyQuestions?: string[];
+  answerHistory?: HistoricalAnswerEntry[];
+  questionHistory?: HistoricalQuestionEntry[];
 }
 
-/**
- * 主题池定义（保持不变，兼容现有逻辑）
- */
-const THEME_POOL = [
-  'odor_control',      // 除臭感受
-  'dust_level',        // 扬尘感受
-  'clumping',          // 结团体验
-  'tracking',          // 带出/粘爪
-  'cleanup',           // 清理轻松度
-  'urine_absorb',      // 吸收表现
-  'appearance',        // 外观变化
-  'comfort',           // 猫咪接受度
-] as const;
-
-type Theme = typeof THEME_POOL[number];
-
-const THEME_NAMES: Record<Theme, string> = {
-  odor_control: '除臭感受',
-  dust_level: '扬尘感受',
-  clumping: '结团体验',
-  tracking: '带出/粘爪',
-  cleanup: '清理轻松度',
-  urine_absorb: '吸收表现',
-  appearance: '外观变化',
-  comfort: '猫咪接受度',
-};
-
-/**
- * 生命周期阶段定义（21天）
- */
-const PHASE_CONFIG = {
-  early: { start: 1, end: 7, name: '早期体验' },
-  mid: { start: 8, end: 14, name: '稳定体验' },
-  late: { start: 15, end: 21, name: '衰减/持久体验' },
-};
-
-/**
- * 物料状态定义
- */
-const MATERIAL_STATE_TRANSITIONS: Record<MaterialState, { canTransitionTo: MaterialState[]; thresholdDays: number }> = {
+const MATERIAL_STATE_TRANSITIONS: Record<
+  MaterialState,
+  { canTransitionTo: MaterialState[]; thresholdDays: number }
+> = {
   new_bag: {
     canTransitionTo: ['normal'],
     thresholdDays: 3,
@@ -106,35 +117,47 @@ const MATERIAL_STATE_TRANSITIONS: Record<MaterialState, { canTransitionTo: Mater
   },
   ended: {
     canTransitionTo: [],
-    thresholdDays: Infinity,
+    thresholdDays: Number.POSITIVE_INFINITY,
   },
 };
 
-/**
- * 逻辑分支定义
- */
-const BRANCH_CONDITIONS = {
-  endgame: (state: MaterialState, day: number, scores?: StructuredScores) =>
-    state === 'nearing_end' && day >= 18,
-  retrospective: (state: MaterialState, day: number, scores?: StructuredScores) =>
-    day === 21 && scores && (scores.odor <= 2 || scores.dust <= 2),
-  normal: () => true,
-};
+const AI_TREND_VALUES: TrendStatus[] = [
+  'worsening',
+  'improving',
+  'stable_good',
+  'fluctuating',
+  'accepted',
+];
 
-/**
- * 动态问卷生成器（升级版）
- * 测试总长度：21天，3个阶段
- * 状态机：new_bag -> normal -> nearing_end -> ended（不可逆）
- * 逻辑分支：normal | endgame | retrospective
- */
+const AI_RISK_VALUES: RiskLevel[] = ['high', 'medium', 'low'];
+const AI_FOCUS_VALUES: FocusAngle[] = [
+  'severity',
+  'frequency',
+  'spread',
+  'stability',
+  'durability',
+  'scenario',
+  'impact',
+];
+
+const ACCEPTANCE_PATTERNS = [
+  /能接受/,
+  /还可以用/,
+  /还能用/,
+  /习惯/,
+  /凑合/,
+  /将就/,
+  /问题不大/,
+  /可接受/,
+];
+
 export class DynamicQuestionnaireGenerator {
   private readonly TOTAL_DAYS = 21;
   private readonly DAYS_PER_CYCLE = 7;
 
-  /**
-   * 生成每日问卷（升级版，包含状态机和分支逻辑）
-   */
-  async generateDailyQuestionnaire(config: DynamicQuestionnaireConfig): Promise<DailyQuestionnaireResponse> {
+  async generateDailyQuestionnaire(
+    config: DynamicQuestionnaireConfig,
+  ): Promise<DailyQuestionnaireResponse> {
     const {
       productName,
       dayIndex,
@@ -142,725 +165,524 @@ export class DynamicQuestionnaireGenerator {
       currentMaterialState,
       previousAnswers,
       historyQuestions,
+      answerHistory,
+      questionHistory,
     } = config;
 
-    // 计算周期信息
     const cycleIndex = Math.ceil(dayIndex / this.DAYS_PER_CYCLE);
     const dayInCycle = ((dayIndex - 1) % this.DAYS_PER_CYCLE) + 1;
-
-    // 计算生命周期阶段
     const lifecyclePhase = this.calculateLifecyclePhase(dayIndex);
-
-    // 计算新的物料状态（不可逆）
-    const newMaterialState = this.calculateMaterialState(currentMaterialState || 'new_bag', dayIndex);
-
-    // 提取 5 维度评分
+    const materialState = this.calculateMaterialState(
+      currentMaterialState || 'new_bag',
+      dayIndex,
+    );
     const structuredScores = this.extractStructuredScores(previousAnswers);
+    const logicBranch = this.calculateLogicBranch(materialState, dayIndex, structuredScores);
 
-    // 计算逻辑分支
-    const logicBranch = this.calculateLogicBranch(newMaterialState, dayIndex, structuredScores);
-
-    // 如果是第一天，使用预设的基线问题
     if (dayIndex === 1) {
       return {
-        ...this.getBaselineQuestions(productName),
+        questions: this.validateTemplates(
+          QuestionTemplateManager.getDay1BaselineQuestions(),
+          '建立 5 维基线评分',
+          'fallback',
+        ),
         globalDayIndex: dayIndex,
         cycleIndex,
         dayInCycle,
-        materialState: newMaterialState,
+        materialState,
         logicBranch,
         lifecyclePhase,
-        avoidRepeatCheck: '基线问题',
+        avoidRepeatCheck: 'Day 1 固定基线题',
+        generationStrategy: 'baseline',
+        questionSourceDetails: ['baseline:fixed'],
       };
     }
 
-    // 准备历史问题文本
-    const historyText = this.formatHistoryQuestions(historyQuestions || []);
-
-    // 准备前一天评分（5 维度）
-    const prevDayScores = this.formatPreviousDayScores(previousAnswers, structuredScores);
-
-    // 使用 AI 生成问题
-    let response = await this.generateQuestionsWithAI({
-      productName,
-      globalDayIndex: dayIndex,
-      cycleIndex,
-      dayInCycle,
-      lifecyclePhase,
-      materialState: newMaterialState,
-      logicBranch,
-      prevDayScores,
-      historyText,
-      structuredScores,
+    const themeSnapshots = this.buildThemeSnapshots({
+      dayIndex,
+      answerHistory,
+      previousAnswers,
+      questionHistory,
+      historyQuestions,
     });
 
-    // 验证 AI 生成的问题是否符合新规则
-    const validQuestions = response.questions.filter((q: Question) => {
-      const validation = QuestionTextValidator.validateSingle(q.title);
-      (q as any).validation = validation;
-      return validation.valid;
-    });
+    const localDiagnoses = themeSnapshots.map((snapshot) =>
+      this.deriveLocalDiagnosis(snapshot, dayIndex),
+    );
 
-    if (validQuestions.length < 5) {
-      // AI 生成的问题不符合要求，使用本地模板兜底
-      console.warn('[DynamicQuestionnaireGenerator] AI generated invalid questions, using fallback template');
-      response = this.getProgressiveQuestions(
+    let diagnoses = localDiagnoses;
+    let generationStrategy: DailyQuestionnaireResponse['generationStrategy'] = 'rule-fallback';
+    let detailPrefix = 'diagnosis:fallback';
+
+    try {
+      const aiDiagnoses = await this.diagnoseThemeTrendsWithAI({
+        productName,
+        dayIndex,
+        testDurationDays,
+        themeSnapshots,
+        localDiagnoses,
+      });
+
+      diagnoses = this.mergeDiagnoses(localDiagnoses, aiDiagnoses);
+      generationStrategy = 'ai-diagnosis';
+      detailPrefix = 'diagnosis:model';
+    } catch (error) {
+      console.warn('[DynamicQuestionnaireGenerator] AI diagnosis failed, using local fallback', error);
+    }
+
+    const rawQuestions = diagnoses.map((diagnosis) =>
+      QuestionTemplateManager.buildFollowUpQuestion({
+        theme: diagnosis.theme,
+        trendStatus: diagnosis.trendStatus,
+        focusAngle: diagnosis.focusAngle,
+        dayIndex,
+      }),
+    );
+
+    const questions = this.validateTemplates(
+      rawQuestions,
+      '基于历史趋势生成追问',
+      generationStrategy === 'ai-diagnosis' ? 'model' : 'fallback',
+    );
+
+    const questionnaireValidation = QuestionTextValidator.validateQuestionnaire(questions);
+    if (!questionnaireValidation.valid) {
+      console.warn(
+        '[DynamicQuestionnaireGenerator] Questionnaire validation failed, using local diagnosis templates',
+        questionnaireValidation.errors,
+      );
+
+      const fallbackQuestions = this.validateTemplates(
+        localDiagnoses.map((diagnosis) =>
+          QuestionTemplateManager.buildFollowUpQuestion({
+            theme: diagnosis.theme,
+            trendStatus: diagnosis.trendStatus,
+            focusAngle: diagnosis.focusAngle,
+            dayIndex,
+          }),
+        ),
+        '基于本地规则兜底生成追问',
+        'fallback',
+      );
+
+      return {
+        questions: fallbackQuestions,
+        globalDayIndex: dayIndex,
         cycleIndex,
         dayInCycle,
-        lifecyclePhase,
-        newMaterialState,
+        materialState,
         logicBranch,
-        structuredScores,
-      );
-      response.avoidRepeatCheck = response.avoidRepeatCheck + '（AI 验证失败兜底）';
+        lifecyclePhase,
+        avoidRepeatCheck: 'AI 诊断或题目校验失败，已回退到规则模板',
+        generationStrategy: 'rule-fallback',
+        questionSourceDetails: localDiagnoses.map(
+          (diagnosis) =>
+            `diagnosis:fallback:${diagnosis.theme}:${diagnosis.trendStatus}:${diagnosis.focusAngle}`,
+        ),
+      };
     }
 
     return {
-      ...response,
+      questions,
       globalDayIndex: dayIndex,
       cycleIndex,
       dayInCycle,
-      materialState: newMaterialState,
+      materialState,
       logicBranch,
       lifecyclePhase,
+      avoidRepeatCheck: '按主题趋势诊断生成，已避免同日重复主题',
+      generationStrategy,
+      questionSourceDetails: diagnoses.map(
+        (diagnosis) =>
+          `${detailPrefix}:${diagnosis.theme}:${diagnosis.trendStatus}:${diagnosis.focusAngle}`,
+      ),
     };
   }
 
-  /**
-   * 计算生命周期阶段
-   */
   private calculateLifecyclePhase(dayIndex: number): LifecyclePhase {
-    if (dayIndex <= PHASE_CONFIG.early.end) {
+    if (dayIndex <= 7) {
       return 'early';
-    } else if (dayIndex <= PHASE_CONFIG.mid.end) {
-      return 'mid';
-    } else {
-      return 'late';
     }
+
+    if (dayIndex <= 14) {
+      return 'mid';
+    }
+
+    return 'late';
   }
 
-  /**
-   * 计算物料状态（不可逆状态机）
-   */
   private calculateMaterialState(currentState: MaterialState, dayIndex: number): MaterialState {
     const config = MATERIAL_STATE_TRANSITIONS[currentState];
-
-    // 如果已达到阈值，则检查是否需要升级
     if (dayIndex >= config.thresholdDays && config.canTransitionTo.length > 0) {
-      // 转换到下一个状态
       return config.canTransitionTo[0];
     }
-
     return currentState;
   }
 
-  /**
-   * 计算逻辑分支
-   */
   private calculateLogicBranch(
     materialState: MaterialState,
     dayIndex: number,
     scores?: StructuredScores,
   ): LogicBranch {
-    // 按优先级检查分支条件
-    if (BRANCH_CONDITIONS.endgame(materialState, dayIndex, scores)) {
+    if (materialState === 'nearing_end' && dayIndex >= 18) {
       return 'endgame';
     }
 
-    if (BRANCH_CONDITIONS.retrospective(materialState, dayIndex, scores)) {
+    if (dayIndex === this.TOTAL_DAYS && scores && (scores.odor <= 2 || scores.dust <= 2)) {
       return 'retrospective';
     }
 
     return 'normal';
   }
 
-  /**
-   * 提取 5 维度评分（从前一天答案）
-   */
   private extractStructuredScores(previousAnswers?: PreviousDayAnswer[]): StructuredScores | undefined {
     if (!previousAnswers || previousAnswers.length === 0) {
       return undefined;
     }
 
-    // 如果已有结构化评分，直接返回
-    const latestAnswer = previousAnswers[previousAnswers.length - 1];
-    if (latestAnswer.structuredScores) {
-      return latestAnswer.structuredScores;
+    const latestWithStructuredScores = previousAnswers.find((answer) => answer.structuredScores);
+    if (latestWithStructuredScores?.structuredScores) {
+      return latestWithStructuredScores.structuredScores;
     }
 
-    // 否则从问题和评分中推断（临时兼容逻辑）
-    const scores: StructuredScores = {
-      odor: 3,
-      dust: 3,
-      clumping: 3,
-      comfort: 3,
-      cleanup: 3,
-    };
-
-    previousAnswers.forEach(answer => {
-      const theme = answer.theme || this.inferThemeFromQuestion(answer.question);
-      scores[theme as keyof StructuredScores] = answer.score;
+    const scores = createStructuredScores(3);
+    previousAnswers.forEach((answer) => {
+      const theme = normalizeTheme(answer.theme) || this.inferThemeFromQuestion(answer.question);
+      scores[theme] = answer.score;
     });
-
     return scores;
   }
 
-  /**
-   * 从问题文本推断主题
-   */
-  private inferThemeFromQuestion(question: string): keyof StructuredScores {
-    if (question.includes('除臭') || question.includes('味道')) return 'odor';
-    if (question.includes('扬尘') || question.includes('粉尘')) return 'dust';
-    if (question.includes('结团') || question.includes('团')) return 'clumping';
-    if (question.includes('猫咪') || question.includes('喜欢')) return 'comfort';
-    if (question.includes('清理') || question.includes('铲')) return 'cleanup';
-    return 'comfort'; // 默认
+  private inferThemeFromQuestion(question: string): CanonicalTheme {
+    if (/(异味|味道|除臭|臭味)/.test(question)) return 'odor';
+    if (/(扬尘|灰尘|粉尘)/.test(question)) return 'dust';
+    if (/(结团|散团|团块)/.test(question)) return 'clumping';
+    if (/(清理|粘底|铲)/.test(question)) return 'cleanup';
+    return 'comfort';
   }
 
-  /**
-   * 获取第一天基线问题（5 维度）- 使用新的验证规则
-   */
-  private getBaselineQuestions(productName: string): Omit<DailyQuestionnaireResponse, 'globalDayIndex' | 'cycleIndex' | 'dayInCycle' | 'materialState' | 'logicBranch' | 'lifecyclePhase'> {
-    // 使用新的固定基线问题模板
-    const baselineTemplates = QuestionTemplateManager.getDay1BaselineQuestions();
+  private buildThemeSnapshots(input: {
+    dayIndex: number;
+    answerHistory?: HistoricalAnswerEntry[];
+    previousAnswers?: PreviousDayAnswer[];
+    questionHistory?: HistoricalQuestionEntry[];
+    historyQuestions?: string[];
+  }): ThemeHistorySnapshot[] {
+    const synthesizedHistory = this.normalizeAnswerHistory(
+      input.answerHistory,
+      input.previousAnswers,
+      input.dayIndex,
+    );
 
-    // 验证每个问题
-    const validatedQuestions = baselineTemplates.map((template) => {
-      const validation = QuestionTextValidator.validateSingle(template.title);
+    const normalizedQuestionHistory = this.normalizeQuestionHistory(
+      input.questionHistory,
+      input.historyQuestions,
+    );
+
+    return CANONICAL_THEME_ORDER.map((theme) => {
+      const scoreHistory = synthesizedHistory
+        .map((entry) => ({
+          testDay: entry.testDay,
+          score: entry.scores[theme],
+          remarkSignal: entry.remarkSignal,
+        }))
+        .filter((entry) => typeof entry.score === 'number');
+
+      const latestScore = scoreHistory.at(-1)?.score ?? 3;
+      const baselineScore = scoreHistory[0]?.score ?? latestScore;
+      const recentScores = scoreHistory.slice(-3).map((entry) => entry.score);
+      const scoreValues = scoreHistory.map((entry) => entry.score);
+      const themeQuestions = normalizedQuestionHistory
+        .filter((question) => question.theme === theme)
+        .map((question) => question.title)
+        .slice(-4);
+
+      const recentRemarkSignals = synthesizedHistory
+        .filter((entry) => entry.remarkThemes.includes(theme) && entry.remarkSignal)
+        .map((entry) => entry.remarkSignal as string)
+        .slice(-3);
+
+      const averageScore =
+        scoreValues.length > 0
+          ? Number((scoreValues.reduce((sum, score) => sum + score, 0) / scoreValues.length).toFixed(2))
+          : latestScore;
+
       return {
-        id: template.id,
-        theme: template.theme,
-        title: template.title,
-        options: template.options,
-        followupRule: `建立${THEME_NAMES[template.theme as keyof typeof THEME_NAMES] || template.theme}基线`,
-        validation,
-        source: 'fallback' as const,
+        theme,
+        baselineScore,
+        latestScore,
+        recentScores: recentScores.length > 0 ? recentScores : [latestScore],
+        scoreHistory: scoreHistory.map(({ testDay, score }) => ({ testDay, score })),
+        minScore: scoreValues.length > 0 ? Math.min(...scoreValues) : latestScore,
+        maxScore: scoreValues.length > 0 ? Math.max(...scoreValues) : latestScore,
+        averageScore,
+        questionTitles: themeQuestions,
+        recentRemarkSignals,
       };
     });
-
-    return {
-      questions: validatedQuestions as Question[],
-      avoidRepeatCheck: '基线问题（新规则）',
-    };
   }
 
-  /**
-   * 格式化历史问题
-   */
-  private formatHistoryQuestions(questions: string[]): string {
-    if (!questions || questions.length === 0) {
-      return '（暂无历史问题记录）';
-    }
-    return questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
-  }
+  private normalizeAnswerHistory(
+    answerHistory: HistoricalAnswerEntry[] | undefined,
+    previousAnswers: PreviousDayAnswer[] | undefined,
+    dayIndex: number,
+  ): Array<{
+    testDay: number;
+    scores: StructuredScores;
+    remarkSignal: string | null;
+    remarkThemes: CanonicalTheme[];
+  }> {
+    const entries = Array.isArray(answerHistory) ? [...answerHistory] : [];
 
-  /**
-   * 格式化前一天评分（5 维度）
-   */
-  private formatPreviousDayScores(
-    previousAnswers?: PreviousDayAnswer[],
-    structuredScores?: StructuredScores,
-  ): string {
-    if (structuredScores) {
-      const scoreMap = {
-        1: '很差',
-        2: '差',
-        3: '可以接受',
-        4: '好',
-        5: '很好',
-      };
-
-      return [
-        `除臭感受：${scoreMap[structuredScores.odor as keyof typeof scoreMap]} (${structuredScores.odor}分)`,
-        `扬尘感受：${scoreMap[structuredScores.dust as keyof typeof scoreMap]} (${structuredScores.dust}分)`,
-        `结团体验：${scoreMap[structuredScores.clumping as keyof typeof scoreMap]} (${structuredScores.clumping}分)`,
-        `猫咪接受度：${scoreMap[structuredScores.comfort as keyof typeof scoreMap]} (${structuredScores.comfort}分)`,
-        `清理轻松度：${scoreMap[structuredScores.cleanup as keyof typeof scoreMap]} (${structuredScores.cleanup}分)`,
-      ].join('\n');
-    }
-
-    if (!previousAnswers || previousAnswers.length === 0) {
-      return '（暂无昨天评分数据）';
-    }
-
-    const scoreMap = {
-      1: '很差',
-      2: '差',
-      3: '可以接受',
-      4: '好',
-      5: '很好',
-    };
-
-    return previousAnswers.map((a, i) => {
-      const scoreText = scoreMap[a.score as keyof typeof scoreMap] || a.score;
-      return `- 问题 ${i + 1}：${scoreText} (${a.score}分) - "${a.question}"`;
-    }).join('\n');
-  }
-
-  /**
-   * 使用 AI 进行模板改写（量表适配型）
-   * 策略：先生成模板题，然后让 AI 改写，最后验证
-   */
-  private async generateQuestionsWithAI(config: {
-    productName: string;
-    globalDayIndex: number;
-    cycleIndex: number;
-    dayInCycle: number;
-    lifecyclePhase: LifecyclePhase;
-    materialState: MaterialState;
-    logicBranch: LogicBranch;
-    prevDayScores: string;
-    historyText: string;
-    structuredScores?: StructuredScores;
-  }): Promise<Pick<DailyQuestionnaireResponse, 'questions' | 'avoidRepeatCheck'>> {
-    const {
-      globalDayIndex,
-      cycleIndex,
-      dayInCycle,
-      structuredScores,
-    } = config;
-
-    // 1. 先生成模板题（Day1 固定 / Day2+ 递进）
-    let templateQuestions: QuestionTemplate[];
-    if (globalDayIndex === 1) {
-      templateQuestions = QuestionTemplateManager.getDay1BaselineQuestions();
-    } else {
-      // Day2+ 需要前一天的评分
-      if (!structuredScores) {
-        console.warn('[DynamicQuestionnaireGenerator] No previous scores for Day2+, using fallback');
-        return this.getProgressiveQuestionsFromAIContext(cycleIndex, dayInCycle, 'normal');
-      }
-
-      const previousScores: PreviousDayScores = {
-        odor: structuredScores.odor,
-        dust: structuredScores.dust,
-        clumping: structuredScores.clumping,
-        comfort: structuredScores.comfort,
-        cleanup: structuredScores.cleanup,
-      };
-
-      templateQuestions = QuestionTemplateManager.getFollowUpQuestions(previousScores, globalDayIndex);
-    }
-
-    // 2. 使用 AI 改写模板题（高级改写，保持语义不变）
-    const rewrittenQuestions = await this.rewriteQuestionsWithAI(templateQuestions);
-
-    // 3. 验证改写后的问题
-    const validQuestions: Question[] = [];
-    const invalidQuestions: QuestionTemplate[] = [];
-
-    for (let i = 0; i < rewrittenQuestions.length; i++) {
-      const rewritten = rewrittenQuestions[i];
-      const validation = QuestionTextValidator.validateSingle(rewritten.title);
-
-      if (validation.valid) {
-        validQuestions.push({
-          id: rewritten.id,
-          theme: rewritten.theme,
-          title: rewritten.title,
-          options: rewritten.options,
-          followupRule: templateQuestions[i].title, // 记录原始模板
-          validation,
-          source: 'model' as const,
-        });
-      } else {
-        console.warn(`[DynamicQuestionnaireGenerator] Question ${rewritten.id} validation failed:`, validation.errors);
-        invalidQuestions.push(templateQuestions[i]);
-      }
-    }
-
-    // 4. 如果有无效问题，用模板题兜底
-    if (invalidQuestions.length > 0) {
-      invalidQuestions.forEach(template => {
-        const validation = QuestionTextValidator.validateSingle(template.title);
-        validQuestions.push({
-          id: template.id,
-          theme: template.theme,
-          title: template.title,
-          options: template.options,
-          followupRule: template.title,
-          validation,
-          source: 'fallback' as const,
-        });
+    if (entries.length === 0 && previousAnswers && previousAnswers.length > 0) {
+      entries.push({
+        testDay: Math.max(1, dayIndex - 1),
+        answers: previousAnswers,
+        structuredScores: this.extractStructuredScores(previousAnswers),
+        remark: null,
       });
     }
 
-    return {
-      questions: validQuestions,
-      avoidRepeatCheck: invalidQuestions.length > 0 ? 'AI 验证失败，使用模板题兜底' : 'AI 改写成功',
-    };
+    return entries
+      .sort((a, b) => a.testDay - b.testDay)
+      .map((entry) => {
+        const scores = this.normalizeStructuredScores(entry);
+        const sanitizedRemark = sanitizeRemarkForAnalysis(entry.remark);
+
+        return {
+          testDay: entry.testDay,
+          scores,
+          remarkSignal: sanitizedRemark?.relevantText || null,
+          remarkThemes: sanitizedRemark?.themes || [],
+        };
+      });
   }
 
-  /**
-   * 使用 AI 改写问题（带重试机制）
-   */
-  private async rewriteQuestionsWithAI(
-    templateQuestions: QuestionTemplate[],
-  ): Promise<QuestionTemplate[]> {
-    const maxRetries = 3;
+  private normalizeStructuredScores(entry: HistoricalAnswerEntry): StructuredScores {
+    const base = createStructuredScores(3);
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const result = await this.callAIRewriter(templateQuestions);
-        return result;
-      } catch (error) {
-        console.error(`[DynamicQuestionnaireGenerator] AI rewrite attempt ${attempt} failed:`, error);
-        if (attempt === maxRetries) {
-          console.warn('[DynamicQuestionnaireGenerator] All AI rewrite attempts failed, using templates');
-          return templateQuestions;
-        }
+    CANONICAL_THEME_ORDER.forEach((theme) => {
+      const value = entry.structuredScores?.[theme];
+      if (typeof value === 'number' && value >= 1 && value <= 5) {
+        base[theme] = value;
       }
-    }
-
-    return templateQuestions;
-  }
-
-  /**
-   * 调用 AI 改写器
-   */
-  private async callAIRewriter(templateQuestions: QuestionTemplate[]): Promise<QuestionTemplate[]> {
-    const templateText = templateQuestions.map(q => {
-      return `ID: ${q.id}, Theme: ${q.theme}, Original: "${q.title}"`;
-    }).join('\n');
-
-    const systemPrompt = `你是一个量表适配型问题改写引擎。
-
-你的任务：对输入的"模板问题"进行"高级改写"，改写后必须：
-1. 保持语义不变（评价对象+评价标准不变）
-2. 适配 1-5 评分量表（很差/差/可以接受/好/很好）
-3. 禁止任何语气词、闲聊词、泛问
-4. 必须是可评分陈述（评价对象+标准）
-5. 不得出现禁词：体验/感觉/感受/整体/如何/怎么样/到底/啊/呢/你觉得/是不是很
-6. 禁止一句问两个以上点（且/并且/同时/或者 最多出现 1 次）
-7. 字数 12-28（中文+数字计入）
-8. 每题必须含可评分锚点词之一：是否/频率/一致性/程度/明显/持续/易于/不易/更少/更快/更稳
-
-输出格式：纯 JSON，无任何前缀后缀
-{
-  "questions": [
-    {
-      "id": "原ID",
-      "theme": "原theme",
-      "title": "改写后的标题"
-    }
-  ]
-}`;
-
-    const userPrompt = `请改写以下模板问题（保持语义，适配 1-5 量表）：
-
-${templateText}
-
-**注意**：仅改写 title 字段，id/theme/options 保持不变。`;
-
-    const configLLM = new Config();
-    const client = new LLMClient(configLLM);
-
-    const messages = [
-      { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: userPrompt },
-    ];
-
-    const response = await client.invoke(messages, {
-      model: 'doubao-seed-1-8-251228',
-      temperature: 0.5,
     });
 
-    const responseText = response.content?.trim() || '';
-
-    console.log('[DynamicQuestionnaireGenerator] AI Rewrite Response:', responseText);
-
-    // 解析 JSON
-    let rewriteResponse: { questions: Array<{ id: string; theme: string; title: string }> };
-    try {
-      const cleanedText = this.cleanJSON(responseText);
-      console.log('[DynamicQuestionnaireGenerator] Cleaned JSON:', cleanedText);
-      rewriteResponse = JSON.parse(cleanedText);
-    } catch (error) {
-      console.error('[DynamicQuestionnaireGenerator] Failed to parse AI rewrite response:', error);
-      throw new Error('Parse failed');
+    if (entry.answers && entry.answers.length > 0) {
+      entry.answers.forEach((answer) => {
+        const theme = normalizeTheme(answer.theme) || this.inferThemeFromQuestion(answer.question);
+        base[theme] = answer.score;
+      });
     }
 
-    // 验证响应格式
-    if (!rewriteResponse.questions || !Array.isArray(rewriteResponse.questions) || rewriteResponse.questions.length !== templateQuestions.length) {
-      console.error('[DynamicQuestionnaireGenerator] Invalid rewrite response format');
-      throw new Error('Invalid format');
-    }
-
-    // 合并改写后的标题与原始模板
-    const rewrittenQuestions: QuestionTemplate[] = rewriteResponse.questions.map((rw, index) => {
-      const original = templateQuestions[index];
-      return {
-        id: original.id,
-        theme: original.theme,
-        title: rw.title || original.title, // 如果改写失败，使用原标题
-        options: original.options,
-      };
-    });
-
-    return rewrittenQuestions;
+    return base;
   }
 
-  /**
-   * 清理 JSON 字符串
-   */
-  private cleanJSON(text: string): string {
-    // 移除 markdown 代码块标记
-    let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-
-    // 找到 JSON 对象的开始和结束
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  private normalizeQuestionHistory(
+    questionHistory?: HistoricalQuestionEntry[],
+    historyQuestions?: string[],
+  ): Array<{ testDay: number; theme?: CanonicalTheme; title: string }> {
+    if (questionHistory && questionHistory.length > 0) {
+      return questionHistory.map((question) => ({
+        testDay: question.testDay,
+        theme: normalizeTheme(question.theme) || this.inferThemeFromQuestion(question.title),
+        title: question.title,
+      }));
     }
 
-    return cleaned.trim();
+    return (historyQuestions || []).map((title, index) => ({
+      testDay: index + 1,
+      theme: this.inferThemeFromQuestion(title),
+      title,
+    }));
   }
 
-  /**
-   * 验证问题标题
-   */
-  private validateTitle(title: string): string {
-    if (!title || typeof title !== 'string') {
-      return '今天的使用体验怎么样';
-    }
-
-    // 移除序号
-    let cleaned = title.replace(/^\d+[\.\、]\s*/, '');
-
-    // 移除 Markdown
-    cleaned = cleaned.replace(/[#*_`~\[\]]/g, '');
-
-    // 移除换行
-    cleaned = cleaned.replace(/\n+/g, '');
-
-    // 检查长度
-    if (cleaned.length < 12) {
-      cleaned += '你觉得怎么样';
-    }
-    if (cleaned.length > 28) {
-      cleaned = cleaned.substring(0, 28);
-    }
-
-    return cleaned.trim();
-  }
-
-  /**
-   * 验证选项
-   */
-  private validateOptions(options: any): string[] {
-    const defaultOptions = ['很差', '差', '可以接受', '好', '很好'];
-
-    if (!Array.isArray(options)) {
-      return defaultOptions;
-    }
-
-    // 如果选项数量不对或内容不对，使用默认选项
-    if (options.length !== 5) {
-      return defaultOptions;
-    }
-
-    // 简单验证选项内容
-    const requiredOptions = defaultOptions;
-    const isValid = requiredOptions.every(opt => options.includes(opt));
-
-    if (!isValid) {
-      return defaultOptions;
-    }
-
-    return options;
-  }
-
-  /**
-   * 获取基于评分的递进问题（Day 2+ 本地模板兜底）
-   */
-  private getProgressiveQuestions(
-    cycleIndex: number,
-    dayInCycle: number,
-    lifecyclePhase: LifecyclePhase,
-    materialState: MaterialState,
-    logicBranch: LogicBranch,
-    prevDayScores?: StructuredScores,
-  ): Pick<DailyQuestionnaireResponse, 'questions' | 'avoidRepeatCheck'> {
-    let questions: any[];
-
-    if (prevDayScores) {
-      // 使用 QuestionTemplateManager 的 getFollowUpQuestions 方法
-      // 需要转换 StructuredScores 为 PreviousDayScores 格式
-      const previousScores: PreviousDayScores = {
-        odor: prevDayScores.odor,
-        dust: prevDayScores.dust,
-        clumping: prevDayScores.clumping,
-        comfort: prevDayScores.comfort,
-        cleanup: prevDayScores.cleanup,
-      };
-
-      const globalDayIndex = (cycleIndex - 1) * 7 + dayInCycle;
-      questions = QuestionTemplateManager.getFollowUpQuestions(previousScores, globalDayIndex);
-    } else {
-      // 没有上一天评分数据，使用默认问题
-      questions = this.getDefaultQuestionsForContext(cycleIndex, dayInCycle, logicBranch);
-    }
-
-    // 验证每个问题
-    const validatedQuestions = questions.map((q) => {
-      const validation = QuestionTextValidator.validateSingle(q.title);
-      return {
-        ...q,
-        validation,
-        source: 'fallback' as const,
-      };
-    });
-
-    return {
-      questions: validatedQuestions as Question[],
-      avoidRepeatCheck: '本地模板（基于评分递进）',
-    };
-  }
-
-  /**
-   * 获取默认问题（用于没有评分数据的情况）
-   */
-  private getDefaultQuestionsForContext(
-    cycleIndex: number,
-    dayInCycle: number,
-    logicBranch: LogicBranch,
-  ): QuestionTemplate[] {
-    const baseQuestions = [
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q1`,
-        theme: 'odor_control',
-        title: '今天整体除臭情况到底怎么样',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q2`,
-        theme: 'clumping',
-        title: '今天结团效果情况怎么样呢',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q3`,
-        theme: 'cleanup',
-        title: '今天清理起来是不是很费劲',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q4`,
-        theme: 'dust_level',
-        title: '今天猫砂灰尘控制效果怎么样好不好',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q5`,
-        theme: 'comfort',
-        title: '猫咪今天用着感觉怎么样',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-      },
-    ];
-
-    if (logicBranch === 'endgame') {
-      baseQuestions[0].title = '这两天除臭效果有没有变差';
-      baseQuestions[1].title = '对比前几天结团效果怎么样';
-      baseQuestions[2].title = '现在用起来是不是比以前费力';
-      baseQuestions[4].title = '猫咪最近用着还适应吗';
-    }
-
-    if (logicBranch === 'retrospective') {
-      baseQuestions[0].title = '21 天里除臭效果整体怎么样';
-      baseQuestions[1].title = '结团效果这一周保持得如何';
-      baseQuestions[2].title = '现在清理还像刚开始那样轻松吗';
-      baseQuestions[3].title = '扬尘问题这段时间表现如何';
-      baseQuestions[4].title = '猫咪这 21 天整体适应得怎么样';
-    }
-
-    return baseQuestions;
-  }
-
-  /**
-   * 从 AI 上下文推断参数并获取递进问题（用于 AI 失败时的降级）
-   */
-  private getProgressiveQuestionsFromAIContext(
-    cycleIndex: number,
-    dayInCycle: number,
-    logicBranch: LogicBranch,
-  ): Pick<DailyQuestionnaireResponse, 'questions' | 'avoidRepeatCheck'> {
-    // 推断参数
-    const lifecyclePhase: LifecyclePhase = cycleIndex === 1 ? 'early' : cycleIndex === 2 ? 'mid' : 'late';
-    const materialState: MaterialState = cycleIndex === 1 ? 'normal' : cycleIndex === 2 ? 'nearing_end' : 'ended';
-
-    return this.getProgressiveQuestions(
-      cycleIndex,
-      dayInCycle,
-      lifecyclePhase,
-      materialState,
-      logicBranch,
-      undefined, // 没有上一天评分数据
+  private deriveLocalDiagnosis(
+    snapshot: ThemeHistorySnapshot,
+    dayIndex: number,
+  ): ThemeTrendDiagnosis {
+    const recentScores = snapshot.recentScores;
+    const latestScore = snapshot.latestScore;
+    const previousScore = recentScores.at(-2) ?? snapshot.baselineScore;
+    const variability = snapshot.maxScore - snapshot.minScore;
+    const deltaFromBaseline = latestScore - snapshot.baselineScore;
+    const deltaFromPrevious = latestScore - previousScore;
+    const hasAcceptanceSignal = snapshot.recentRemarkSignals.some((signal) =>
+      ACCEPTANCE_PATTERNS.some((pattern) => pattern.test(signal)),
     );
-  }
 
-  /**
-   * 获取默认降级问题（根据逻辑分支）
-   */
-  private getDefaultFallbackQuestions(globalDayIndex: number, cycleIndex: number, dayInCycle: number, logicBranch: LogicBranch): Pick<DailyQuestionnaireResponse, 'questions' | 'avoidRepeatCheck'> {
-    const baseQuestions = [
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q1`,
-        theme: 'odor_control',
-        title: '今天整体除臭情况到底怎么样',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-        followupRule: '默认问题',
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q2`,
-        theme: 'clumping',
-        title: '今天结团效果情况怎么样呢',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-        followupRule: '默认问题',
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q3`,
-        theme: 'cleanup',
-        title: '今天清理起来是不是很费劲',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-        followupRule: '默认问题',
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q4`,
-        theme: 'dust_level',
-        title: '今天猫砂灰尘控制效果怎么样好不好',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-        followupRule: '默认问题',
-      },
-      {
-        id: `C${cycleIndex}D${dayInCycle}Q5`,
-        theme: 'comfort',
-        title: '猫咪今天用着感觉怎么样',
-        options: ['很差', '差', '可以接受', '好', '很好'],
-        followupRule: '默认问题',
-      },
-    ];
-
-    if (logicBranch === 'endgame') {
-      baseQuestions[0].title = '这两天除臭效果有没有变差';
-      baseQuestions[1].title = '对比前几天结团效果怎么样';
-      baseQuestions[2].title = '现在用起来是不是比以前费力';
-      baseQuestions[4].title = '猫咪最近用着还适应吗';
+    let trendStatus: TrendStatus;
+    if (hasAcceptanceSignal && latestScore <= 3) {
+      trendStatus = 'accepted';
+    } else if (variability >= 2 && recentScores.length >= 2) {
+      trendStatus = 'fluctuating';
+    } else if (latestScore >= 4 && recentScores.every((score) => score >= 4)) {
+      trendStatus = 'stable_good';
+    } else if (deltaFromPrevious <= -1 || deltaFromBaseline <= -2 || latestScore <= 2) {
+      trendStatus = 'worsening';
+    } else if (deltaFromBaseline >= 1 || (previousScore <= 2 && latestScore >= 3)) {
+      trendStatus = 'improving';
+    } else if (latestScore >= 4) {
+      trendStatus = 'stable_good';
+    } else {
+      trendStatus = 'accepted';
     }
 
-    if (logicBranch === 'retrospective') {
-      baseQuestions[0].title = '21 天里除臭效果整体怎么样';
-      baseQuestions[1].title = '结团效果这一周保持得如何';
-      baseQuestions[2].title = '现在清理还像刚开始那样轻松吗';
-      baseQuestions[3].title = '扬尘问题这段时间表现如何';
-      baseQuestions[4].title = '猫咪这 21 天整体适应得怎么样';
+    let riskLevel: RiskLevel;
+    if (latestScore <= 2) {
+      riskLevel = 'high';
+    } else if (latestScore === 3 || variability >= 2) {
+      riskLevel = 'medium';
+    } else {
+      riskLevel = 'low';
+    }
+
+    const focusAngle = this.pickFocusAngle(snapshot.theme, trendStatus, dayIndex);
+    const evidence = `基线 ${snapshot.baselineScore} 分，最近 ${recentScores.join('/')} 分，当前 ${latestScore} 分`;
+    const remarkSignal = snapshot.recentRemarkSignals.join('；');
+
+    return {
+      theme: snapshot.theme,
+      trendStatus,
+      riskLevel,
+      focusAngle,
+      evidence,
+      remarkSignal,
+    };
+  }
+
+  private pickFocusAngle(
+    theme: CanonicalTheme,
+    trendStatus: TrendStatus,
+    dayIndex: number,
+  ): FocusAngle {
+    switch (trendStatus) {
+      case 'worsening':
+        if (theme === 'odor' || theme === 'dust') {
+          return dayIndex % 2 === 0 ? 'frequency' : 'spread';
+        }
+        if (theme === 'comfort') {
+          return 'scenario';
+        }
+        return 'severity';
+      case 'improving':
+        return dayIndex % 2 === 0 ? 'stability' : 'durability';
+      case 'stable_good':
+        return dayIndex % 2 === 0 ? 'durability' : 'stability';
+      case 'fluctuating':
+        return dayIndex % 2 === 0 ? 'scenario' : 'stability';
+      case 'accepted':
+      default:
+        return 'impact';
+    }
+  }
+
+  private async diagnoseThemeTrendsWithAI(input: {
+    productName: string;
+    dayIndex: number;
+    testDurationDays: number;
+    themeSnapshots: ThemeHistorySnapshot[];
+    localDiagnoses: ThemeTrendDiagnosis[];
+  }): Promise<ThemeTrendDiagnosis[]> {
+    const systemPrompt = [
+      '你是产品试用问卷的趋势诊断器。',
+      '你的任务是根据历史评分和备注信号，输出 5 个主题的结构化诊断，不要写自然语言题目。',
+      '只允许输出 JSON。',
+      'trendStatus 只能是 worsening / improving / stable_good / fluctuating / accepted。',
+      'riskLevel 只能是 high / medium / low。',
+      'focusAngle 只能是 severity / frequency / spread / stability / durability / scenario / impact。',
+      'evidence 和 remarkSignal 保持简短，必须引用输入信息，不能编造。',
+    ].join(' ');
+
+    const userPrompt = JSON.stringify(
+      {
+        productName: input.productName,
+        dayIndex: input.dayIndex,
+        testDurationDays: input.testDurationDays,
+        themes: input.themeSnapshots,
+        localDiagnoses: input.localDiagnoses,
+        outputFormat: {
+          themes: CANONICAL_THEME_ORDER.map((theme) => ({
+            theme,
+            trendStatus: 'worsening|improving|stable_good|fluctuating|accepted',
+            riskLevel: 'high|medium|low',
+            focusAngle: 'severity|frequency|spread|stability|durability|scenario|impact',
+            evidence: 'string',
+            remarkSignal: 'string',
+          })),
+        },
+      },
+      null,
+      2,
+    );
+
+    const response = await generateJson<{ themes: Array<Record<string, unknown>> }>({
+      systemPrompt,
+      userPrompt,
+      temperature: 0.1,
+    });
+
+    if (!Array.isArray(response.themes)) {
+      throw new Error('AI diagnosis response missing themes array');
+    }
+
+    return response.themes.map((raw) => this.parseDiagnosis(raw));
+  }
+
+  private parseDiagnosis(raw: Record<string, unknown>): ThemeTrendDiagnosis {
+    const theme = normalizeTheme(String(raw.theme || ''));
+    const trendStatus = String(raw.trendStatus || '');
+    const riskLevel = String(raw.riskLevel || '');
+    const focusAngle = String(raw.focusAngle || '');
+
+    if (!theme) {
+      throw new Error('AI diagnosis theme is invalid');
+    }
+    if (!AI_TREND_VALUES.includes(trendStatus as TrendStatus)) {
+      throw new Error(`AI diagnosis trendStatus is invalid for theme ${theme}`);
+    }
+    if (!AI_RISK_VALUES.includes(riskLevel as RiskLevel)) {
+      throw new Error(`AI diagnosis riskLevel is invalid for theme ${theme}`);
+    }
+    if (!AI_FOCUS_VALUES.includes(focusAngle as FocusAngle)) {
+      throw new Error(`AI diagnosis focusAngle is invalid for theme ${theme}`);
     }
 
     return {
-      questions: baseQuestions,
-      avoidRepeatCheck: '使用默认问题',
+      theme,
+      trendStatus: trendStatus as TrendStatus,
+      riskLevel: riskLevel as RiskLevel,
+      focusAngle: focusAngle as FocusAngle,
+      evidence: String(raw.evidence || ''),
+      remarkSignal: String(raw.remarkSignal || ''),
     };
+  }
+
+  private mergeDiagnoses(
+    localDiagnoses: ThemeTrendDiagnosis[],
+    aiDiagnoses: ThemeTrendDiagnosis[],
+  ): ThemeTrendDiagnosis[] {
+    const aiMap = new Map(aiDiagnoses.map((diagnosis) => [diagnosis.theme, diagnosis]));
+
+    return localDiagnoses.map((diagnosis) => {
+      return aiMap.get(diagnosis.theme) || diagnosis;
+    });
+  }
+
+  private validateTemplates(
+    templates: QuestionTemplate[],
+    followupRule: string,
+    source: 'model' | 'fallback',
+  ): Question[] {
+    return templates.map((template) => ({
+      id: template.id,
+      theme: template.theme,
+      title: template.title,
+      options: template.options,
+      followupRule,
+      validation: QuestionTextValidator.validateSingle(template.title),
+      source,
+    }));
   }
 }
 

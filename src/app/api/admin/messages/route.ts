@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { messageManager } from '@/storage/database';
+import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
+import { createLocalMessage, listLocalMessages } from '@/lib/local-admin-store';
 
-// GET - 获取所有留言
 export async function GET() {
   try {
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const allMessages = await listLocalMessages();
+
+      return NextResponse.json({
+        success: true,
+        data: allMessages,
+        source: 'local-dev-store',
+      });
+    }
+
     const allMessages = await messageManager.getAllMessages();
 
     return NextResponse.json({
@@ -22,13 +33,11 @@ export async function GET() {
   }
 }
 
-// POST - 创建新留言
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { authorName, content, createdBy } = body;
 
-    // 验证输入
     if (!authorName || !content) {
       return NextResponse.json(
         {
@@ -37,6 +46,20 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const newMessage = await createLocalMessage({
+        authorName,
+        content,
+        createdBy: createdBy || null,
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: newMessage,
+        source: 'local-dev-store',
+      });
     }
 
     const newMessage = await messageManager.createMessage({

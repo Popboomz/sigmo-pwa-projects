@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { protocolManager, dailyLogsManager } from '@/storage/database';
+import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
+import { getLocalProtocolById } from '@/lib/local-admin-store';
+import { getLocalLogsByProtocol } from '@/lib/local-questionnaire-store';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +16,38 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 验证协议是否存在
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const protocol = await getLocalProtocolById(protocolId);
+      if (!protocol) {
+        return NextResponse.json(
+          { error: 'Protocol not found' },
+          { status: 404 }
+        );
+      }
+
+      const localLogs = await getLocalLogsByProtocol(protocolId);
+      const localAnswers = localLogs.map((log) => ({
+        id: log.id,
+        questionnaireId: log.id,
+        protocolId: log.protocolId,
+        dayIndex: log.testDay,
+        answers: log.answers,
+        remark: log.remark,
+        submittedAt: log.submittedAt,
+        structuredScores: log.structuredScores,
+        materialState: log.materialState,
+        lifecyclePhase: log.lifecyclePhase,
+        logicBranch: log.logicBranch,
+        isLegacy: false,
+      }));
+
+      return NextResponse.json({
+        success: true,
+        data: localAnswers,
+        source: 'local-dev-store',
+      });
+    }
+
     const protocol = await protocolManager.getProtocolById(protocolId);
     if (!protocol) {
       return NextResponse.json(
@@ -22,13 +56,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 获取所有每日日志（新的架构）
     const dailyLogs = await dailyLogsManager.getLogsByProtocol(protocolId);
 
-    // 将 daily_logs 转换为问卷答案格式（兼容管理后台）
-    const answers = dailyLogs.map(log => ({
+    const answers = dailyLogs.map((log) => ({
       id: log.id,
-      questionnaireId: log.id, // 使用 log.id 作为 questionnaireId
+      questionnaireId: log.id,
       protocolId: log.protocolId,
       dayIndex: log.testDay,
       answers: log.answers,

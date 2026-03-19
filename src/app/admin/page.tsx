@@ -617,7 +617,7 @@ export default function AdminDashboardPage() {
       });
 
       // 第二步：导出 Excel
-      await exportExcel();
+      await exportExcel(analyzeData.analysis);
 
       setProcessStep('done');
       setShowAnalysisDialog(true);
@@ -642,7 +642,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const exportExcel = async () => {
+  const exportExcel = async (analysis: any = answersAnalysisResult) => {
     console.log('导出 Excel 文件');
     let exportResponse: Response;
     try {
@@ -653,6 +653,7 @@ export default function AdminDashboardPage() {
         },
         body: JSON.stringify({
           protocolId: selectedProtocolId,
+          analysis,
         }),
       });
     } catch (fetchError) {
@@ -687,7 +688,7 @@ export default function AdminDashboardPage() {
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = `问卷答案_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `问卷答案_AI分析报告_${new Date().toISOString().slice(0, 10)}.xlsx`;
     console.log('开始下载:', link.download);
 
     link.click();
@@ -699,26 +700,26 @@ export default function AdminDashboardPage() {
   if (!user) {
     return (
       <div className="min-h-screen mesh-bg flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[#6B8E6F] animate-spin" />
+        <Loader2 className="w-8 h-8 text-[var(--y2k-blue)] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen mesh-bg relative overflow-hidden font-body text-primary">
+    <div className="min-h-screen mesh-bg y2k-shell relative overflow-hidden font-body text-primary">
       {/* Floating Gradients */}
-      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/8 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
-      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[#6B8E6F]/5 blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
+      <div className="fixed top-[-30%] right-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(122,168,255,0.14)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow" />
+      <div className="fixed bottom-[-30%] left-[-10%] w-[800px] h-[800px] rounded-full bg-[rgba(213,192,255,0.16)] blur-[140px] pointer-events-none mix-blend-multiply animate-float-slow delay-200" />
 
       {/* Navigation */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass rounded-2xl shadow-sm z-50 px-6 py-3">
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass y2k-nav rounded-2xl shadow-sm z-50 px-6 py-3">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#6B8E6F] rounded-full flex items-center justify-center shadow-lg shadow-[#6B8E6F]/25">
-              <Lock className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg navbar-logo">
+              <Lock className="w-5 h-5 text-[var(--y2k-blue)]" />
             </div>
             <div>
-              <div className="font-display font-bold text-xl tracking-tight text-primary">
+              <div className="font-display font-bold text-xl tracking-tight brand-wordmark">
                 管理后台
               </div>
               <div className="text-xs text-muted-foreground">{user.name}</div>
@@ -726,11 +727,11 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex gap-1 sm:gap-2">
             <Link href="/" className="group">
-              <Button variant="ghost" size="sm" className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300">
+              <Button variant="ghost" size="sm" className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 admin-nav-link y2k-ghost">
                 <span className="hidden sm:inline">查看网站</span>
               </Button>
             </Link>
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300">
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="flex items-center gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 admin-nav-link y2k-ghost">
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">退出</span>
             </Button>
@@ -744,9 +745,9 @@ export default function AdminDashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-32 relative z-10">
         {/* Header */}
         <div className="mb-8 animate-enter">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#6B8E6F]/10 rounded-full border border-[#6B8E6F]/20 mb-4">
-            <Sparkles className="w-4 h-4 text-[#6B8E6F]" />
-            <span className="text-sm font-medium text-[#6B8E6F]">管理仪表盘</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 y2k-chip rounded-full mb-4">
+            <Sparkles className="w-4 h-4 text-[var(--y2k-blue)]" />
+            <span className="text-sm font-medium text-[var(--y2k-blue)]">管理仪表盘</span>
           </div>
           <h1 className="text-3xl font-bold text-primary mb-2 font-display">
             欢迎回来，{user.name}
@@ -758,7 +759,7 @@ export default function AdminDashboardPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <Card className="premium-card">
+          <Card className="premium-card y2k-panel y2k-stat">
             <CardHeader className="pb-2 px-3">
               <CardTitle className="text-xs font-medium text-muted-foreground">
                 测试协议
@@ -767,12 +768,12 @@ export default function AdminDashboardPage() {
             <CardContent className="px-3 pb-3">
               <div className="flex items-center justify-between">
                 <div className="text-2xl font-bold text-primary">{protocols.length}</div>
-                <ClipboardList className="w-6 h-6 text-[#6B8E6F]" />
+                <ClipboardList className="w-6 h-6 text-[var(--y2k-blue)]" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="premium-card">
+          <Card className="premium-card y2k-panel y2k-stat">
             <CardHeader className="pb-2 px-3">
               <CardTitle className="text-xs font-medium text-muted-foreground">
                 问卷答案
@@ -781,12 +782,12 @@ export default function AdminDashboardPage() {
             <CardContent className="px-3 pb-3">
               <div className="flex items-center justify-between">
                 <div className="text-2xl font-bold text-primary">{questionnaireAnswers.length}</div>
-                <FileText className="w-6 h-6 text-[#6B8E6F]" />
+                <FileText className="w-6 h-6 text-[var(--y2k-blue)]" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="premium-card">
+          <Card className="premium-card y2k-panel y2k-stat">
             <CardHeader className="pb-2 px-3">
               <CardTitle className="text-xs font-medium text-muted-foreground">
                 留言数量
@@ -795,7 +796,7 @@ export default function AdminDashboardPage() {
             <CardContent className="px-3 pb-3">
               <div className="flex items-center justify-between">
                 <div className="text-2xl font-bold text-primary">{messages.length}</div>
-                <MessageSquare className="w-6 h-6 text-[#6B8E6F]" />
+                <MessageSquare className="w-6 h-6 text-[var(--y2k-blue)]" />
               </div>
             </CardContent>
           </Card>
@@ -803,16 +804,16 @@ export default function AdminDashboardPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="protocols" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="protocols" className="data-[state=active]:bg-[#6B8E6F] data-[state=active]:text-white">
+          <TabsList className="grid w-full grid-cols-3 mb-6 y2k-tabs">
+            <TabsTrigger value="protocols" className="y2k-tab-trigger">
               <ClipboardList className="w-4 h-4 mr-2" />
               测试协议
             </TabsTrigger>
-            <TabsTrigger value="messages" className="data-[state=active]:bg-[#6B8E6F] data-[state=active]:text-white">
+            <TabsTrigger value="messages" className="y2k-tab-trigger">
               <MessageSquare className="w-4 h-4 mr-2" />
               留言管理
             </TabsTrigger>
-            <TabsTrigger value="answers" className="data-[state=active]:bg-[#6B8E6F] data-[state=active]:text-white">
+            <TabsTrigger value="answers" className="y2k-tab-trigger">
               <FileText className="w-4 h-4 mr-2" />
               问卷答案
             </TabsTrigger>
@@ -821,7 +822,7 @@ export default function AdminDashboardPage() {
           {/* Protocols Tab */}
           <TabsContent value="protocols" className="space-y-6">
             {/* Create Protocol */}
-            <Card className="premium-card">
+            <Card className="premium-card y2k-panel">
               <CardHeader>
                 <CardTitle>创建测试协议</CardTitle>
                 <CardDescription>
@@ -832,30 +833,39 @@ export default function AdminDashboardPage() {
                 <form onSubmit={handleCreateProtocol} className="space-y-4">
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="title">协议标题 *</Label>
+                      <Label htmlFor="title">测试名称 *</Label>
+                      <p className="text-xs text-muted-foreground">
+                        测试者进入页面后会先看到这个名称，建议填写清晰的测试主题。
+                      </p>
                       <Input
                         id="title"
-                        placeholder="例如：2024年春季面霜测试"
+                        placeholder="例如：春季新款猫砂体验测试"
                         value={newProtocolTitle}
                         onChange={(e) => setNewProtocolTitle(e.target.value)}
                         required
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="productName">产品名称</Label>
+                      <Label htmlFor="productName">测试产品名</Label>
+                      <p className="text-xs text-muted-foreground">
+                        会在测试页顶部和信息卡里展示，建议填写测试者熟悉的产品名称。
+                      </p>
                       <Input
                         id="productName"
-                        placeholder="例如：修护面霜"
+                        placeholder="例如：SIGMO 轻尘除臭猫砂"
                         value={newProductName}
                         onChange={(e) => setNewProductName(e.target.value)}
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="description">协议描述</Label>
+                    <Label htmlFor="description">测试说明</Label>
+                    <p className="text-xs text-muted-foreground">
+                      这里填写给测试者看的背景、要求或提醒，进入测试页后会直接展示。
+                    </p>
                     <Textarea
                       id="description"
-                      placeholder="描述测试的目的和要求"
+                      placeholder="例如：请连续体验 28 天，重点关注除臭、扬尘、结团和猫咪接受度。每天完成一次问卷，可写下真实吐槽和建议。"
                       value={newProtocolDesc}
                       onChange={(e) => setNewProtocolDesc(e.target.value)}
                       rows={3}
@@ -876,7 +886,7 @@ export default function AdminDashboardPage() {
                   <Button
                     type="submit"
                     disabled={isCreatingProtocol}
-                    className="w-full bg-[#6B8E6F] hover:bg-[#5E8062]"
+                    className="w-full y2k-button"
                   >
                     {isCreatingProtocol ? (
                       <>
@@ -895,7 +905,7 @@ export default function AdminDashboardPage() {
             </Card>
 
             {/* Existing Protocols */}
-            <Card className="premium-card">
+            <Card className="premium-card y2k-panel">
               <CardHeader>
                 <CardTitle>现有测试协议</CardTitle>
                 <CardDescription>
@@ -988,7 +998,7 @@ export default function AdminDashboardPage() {
                 <Button
                   onClick={handleGeneratePPT}
                   disabled={isGeneratingPPT || messages.length === 0}
-                  className="w-full bg-[#6B8E6F] hover:bg-[#5E8062]"
+                  className="w-full y2k-button"
                 >
                   {isAnalyzing ? (
                     <>
@@ -1065,7 +1075,7 @@ export default function AdminDashboardPage() {
                   <Button
                     type="submit"
                     disabled={isSubmittingMessage}
-                    className="w-full bg-[#6B8E6F] hover:bg-[#5E8062]"
+                    className="w-full y2k-button"
                   >
                     {isSubmittingMessage ? (
                       <>
@@ -1159,7 +1169,7 @@ export default function AdminDashboardPage() {
                   <Button
                     onClick={handleAnalyzeAndExport}
                     disabled={isProcessingAnswers || !selectedProtocolId || questionnaireAnswers.length === 0}
-                    className="bg-[#6B8E6F] hover:bg-[#5E8062]"
+                    className="y2k-button"
                   >
                     {isProcessingAnswers ? (
                       <>
@@ -1350,6 +1360,106 @@ export default function AdminDashboardPage() {
                     ))}
                   </ul>
                 </div>
+
+                {answersAnalysisResult.themeFindings?.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">主题诊断</h3>
+                    <div className="space-y-3">
+                      {answersAnalysisResult.themeFindings.map((item: any, index: number) => (
+                        <div key={index} className="border rounded-lg p-4 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium">
+                              {item.displayName}
+                            </div>
+                            <Badge variant="outline">
+                              平均分 {item.averageScore}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            趋势：{item.trendStatus}
+                          </div>
+                          <div className="text-sm">{item.issueSummary}</div>
+                          {item.evidence?.length > 0 && (
+                            <ul className="list-disc pl-5 space-y-1">
+                              {item.evidence.map((evidence: string, i: number) => (
+                                <li key={i} className="text-xs">{evidence}</li>
+                              ))}
+                            </ul>
+                          )}
+                          {item.suggestedDirection && (
+                            <div className="text-xs text-muted-foreground">
+                              建议方向：{item.suggestedDirection}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {answersAnalysisResult.actionPlan?.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">具体改进动作</h3>
+                    <div className="space-y-3">
+                      {answersAnalysisResult.actionPlan.map((item: any, index: number) => (
+                        <div key={index} className="border rounded-lg p-4 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium">
+                              {item.displayName}
+                            </div>
+                            <Badge variant={item.priority === 'high' ? 'destructive' : 'outline'}>
+                              {item.priority}
+                            </Badge>
+                          </div>
+                          <div className="text-sm">{item.problem}</div>
+                          <div className="text-xs text-muted-foreground">
+                            可能根因：{item.likelyCause}
+                          </div>
+                          {item.materialAdjustments?.length > 0 && (
+                            <div>
+                              <div className="text-xs font-medium mb-1">材料建议</div>
+                              <ul className="list-disc pl-5 space-y-1">
+                                {item.materialAdjustments.map((line: string, i: number) => (
+                                  <li key={i} className="text-xs">{line}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {item.ratioAdjustments?.length > 0 && (
+                            <div>
+                              <div className="text-xs font-medium mb-1">比例建议</div>
+                              <ul className="list-disc pl-5 space-y-1">
+                                {item.ratioAdjustments.map((line: string, i: number) => (
+                                  <li key={i} className="text-xs">{line}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {item.processAdjustments?.length > 0 && (
+                            <div>
+                              <div className="text-xs font-medium mb-1">工艺建议</div>
+                              <ul className="list-disc pl-5 space-y-1">
+                                {item.processAdjustments.map((line: string, i: number) => (
+                                  <li key={i} className="text-xs">{line}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {item.validationPlan?.length > 0 && (
+                            <div>
+                              <div className="text-xs font-medium mb-1">验证方案</div>
+                              <ul className="list-disc pl-5 space-y-1">
+                                {item.validationPlan.map((line: string, i: number) => (
+                                  <li key={i} className="text-xs">{line}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* 每日分析 */}
                 <div>

@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { protocolManager, questionnaireAnswerManager } from '@/storage/database';
+import { getLocalProtocolByShareLink } from '@/lib/local-admin-store';
+import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
+import {
+  endLocalTest,
+  getLocalLogsByUser,
+  getOrCreateLocalProgress,
+} from '@/lib/local-questionnaire-store';
 
 interface EndTestRequest {
   shareLink: string;
   endReason: string;
 }
 
-// 固定的 UUID 用于标识测试结束记录（36字符，符合数据库约束）
 const TEST_ENDED_UUID = '00000000-0000-0000-0000-000000000000';
 
 export async function POST(request: NextRequest) {
@@ -17,32 +24,56 @@ export async function POST(request: NextRequest) {
     if (!shareLink || !endReason?.trim()) {
       return NextResponse.json(
         { error: 'Share link and end reason are required' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // 查找协议
+    if (isLocalDevDatabaseFallbackEnabled()) {
+      const userId = 'anonymous';
+      const protocol = await getLocalProtocolByShareLink(shareLink);
+
+      if (!protocol) {
+        return NextResponse.json({ error: 'Protocol not found' }, { status: 404 });
+      }
+
+      await getOrCreateLocalProgress(userId, protocol.id);
+      const progress = await endLocalTest(userId, protocol.id);
+
+      if (!progress) {
+        return NextResponse.json({ error: 'Failed to end test' }, { status: 500 });
+      }
+
+      const existingLogs = await getLocalLogsByUser(userId, protocol.id);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: TEST_ENDED_UUID,
+          questionnaireId: TEST_ENDED_UUID,
+          protocolId: protocol.id,
+          dayIndex: existingLogs.length + 1,
+          answers: [],
+          remark: `[提前结束测试] ${endReason.trim()}`,
+          submittedAt: new Date().toISOString(),
+        },
+      });
+    }
+
     const protocol = await protocolManager.getProtocolByShareLink(shareLink);
 
     if (!protocol) {
-      return NextResponse.json(
-        { error: 'Protocol not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Protocol not found' }, { status: 404 });
     }
 
-    // 获取已提交的答案数量，确定结束的 dayIndex
     const existingAnswers = await questionnaireAnswerManager.getAnswersByProtocol(protocol.id);
     const dayIndex = existingAnswers.length + 1;
 
-    // 创建一个特殊的答案记录，标记测试结束
-    // 使用固定 UUID 作为 questionnaireId，在 remark 中记录结束原因
     const endRecord = await questionnaireAnswerManager.createAnswer({
-      questionnaireId: TEST_ENDED_UUID, // 固定的 UUID 标识结束记录
+      questionnaireId: TEST_ENDED_UUID,
       protocolId: protocol.id,
       dayIndex,
-      answers: [], // 空答案列表
-      remark: `[提前结束测试] ${endReason}`, // 结束原因作为备注，带前缀
+      answers: [],
+      remark: `[提前结束测试] ${endReason.trim()}`,
     });
 
     return NextResponse.json({
@@ -51,9 +82,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('End test error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

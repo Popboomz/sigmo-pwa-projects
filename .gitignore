@@ -97,6 +97,7 @@ Desktop.ini
 .turbo
 
 .coze-logs
+.local-dev-data/
 
 # Playwright
 playwright-report/

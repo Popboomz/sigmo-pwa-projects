@@ -48,32 +48,32 @@ export default function AccountPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
+    <div className="min-h-screen mesh-bg y2k-shell relative overflow-hidden">
       {/* Navigation - Floating Glassmorphism */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass rounded-2xl shadow-sm z-50 px-6 py-3">
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-[1200px] glass y2k-nav rounded-2xl shadow-sm z-50 px-6 py-3">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center transition-transform duration-300 hover:scale-105 navbar-logo">
               <span className="text-2xl text-primary font-display font-bold">Σ</span>
             </div>
-            <div className="font-display font-bold text-xl tracking-tight text-primary">
+            <div className="font-display font-bold text-xl tracking-tight brand-wordmark">
               {isClient ? t('nav.brand') : 'SIGMÖ'}
             </div>
           </div>
           <div className="flex gap-1 sm:gap-2">
             <Link href="/" className="group">
-              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link">
+              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link y2k-ghost">
                 <Home className="w-4 h-4 flex-shrink-0" />
                 <span className="hidden sm:inline">{t('nav.home')}</span>
               </Button>
             </Link>
             <Link href="/collection" className="group">
-              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link">
+              <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 text-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300 px-3 py-2 relative nav-link y2k-ghost">
                 <Package className="w-4 h-4 flex-shrink-0" />
                 <span className="hidden sm:inline">{t('nav.collection')}</span>
               </Button>
             </Link>
-            <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 bg-primary/5 text-primary transition-all duration-300 px-3 py-2 relative nav-link" disabled>
+            <Button variant="ghost" className="flex items-center gap-1 sm:gap-2 bg-primary/5 text-primary transition-all duration-300 px-3 py-2 relative nav-link y2k-chip" disabled>
               <User className="w-4 h-4 flex-shrink-0" />
               <span className="hidden sm:inline">{t('nav.account')}</span>
             </Button>
@@ -94,7 +94,7 @@ export default function AccountPage() {
         </div>
 
         {isLoading ? (
-          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm">
+          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm y2k-panel">
             <CardContent className="py-12 text-center text-muted-foreground">
               <div className="animate-pulse space-y-4">
                 <div className="h-4 bg-muted rounded w-3/4 mx-auto"></div>
@@ -103,10 +103,10 @@ export default function AccountPage() {
             </CardContent>
           </Card>
         ) : !isLoggedIn ? (
-          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm">
+          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm y2k-panel">
             <CardHeader>
               <CardTitle className="font-display text-2xl text-primary flex items-center gap-3">
-                <div className="w-12 h-12 bg-secondary/50 rounded-2xl flex items-center justify-center">
+                <div className="w-12 h-12 brand-tile rounded-2xl flex items-center justify-center">
                   <Lock className="w-6 h-6 text-primary" />
                 </div>
                 {t('account.notLoggedIn.title')}
@@ -122,11 +122,11 @@ export default function AccountPage() {
             </CardContent>
           </Card>
         ) : !isAdmin ? (
-          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm">
+          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm y2k-panel">
             <CardHeader>
-              <CardTitle className="font-display text-2xl text-interactive flex items-center gap-3">
-                <div className="w-12 h-12 bg-interactive/20 rounded-2xl flex items-center justify-center">
-                  <Lock className="w-6 h-6 text-interactive" />
+              <CardTitle className="font-display text-2xl text-primary flex items-center gap-3">
+                <div className="w-12 h-12 brand-tile rounded-2xl flex items-center justify-center">
+                  <Lock className="w-6 h-6 text-[var(--y2k-blue)]" />
                 </div>
                 {t('account.noPermission.title')}
               </CardTitle>
@@ -141,11 +141,11 @@ export default function AccountPage() {
             </CardContent>
           </Card>
         ) : (
-          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm">
+          <Card className="rounded-3xl border border-border/50 bg-card shadow-sm y2k-panel">
             <CardHeader>
-              <CardTitle className="font-display text-2xl text-accent flex items-center gap-3">
-                <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center">
-                  <User className="w-6 h-6 text-accent" />
+              <CardTitle className="font-display text-2xl text-primary flex items-center gap-3">
+                <div className="w-12 h-12 brand-tile rounded-2xl flex items-center justify-center">
+                  <User className="w-6 h-6 text-[var(--y2k-blue)]" />
                 </div>
                 {t('account.adminAccount.title')}
               </CardTitle>
@@ -158,7 +158,7 @@ export default function AccountPage() {
                 {t('account.adminAccount.adminAccessHint')}
               </p>
               <Link href="/admin">
-                <Button className="rounded-2xl px-8 py-6 shadow-md hover:shadow-lg transition-all duration-300 bg-primary text-primary-foreground hover:bg-primary/90">
+                <Button className="rounded-2xl px-8 py-6 shadow-md hover:shadow-lg transition-all duration-300 y2k-button">
                   {t('account.adminAccount.goToDashboard')}
                 </Button>
               </Link>
