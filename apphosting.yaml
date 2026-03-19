@@ -10,6 +10,10 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: APP_HOST_ALLOWLIST
+    value: "*.hosted.app"
+    availability:
+      - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: "AIzaSyA554mJzn8YcBEJ2vQGeUsT8XfNAZstS0w"
     availability:
@@ -56,6 +60,18 @@ env:
       - BUILD
       - RUNTIME
   - variable: AI_API_KEY
-    secret: SIGMO_AI_API_KEY_PREVIEW
+    secret: SIGMO_AI_API_KEY_PROD
+    availability:
+      - RUNTIME
+  - variable: PGDATABASE_URL
+    secret: SIGMO_PGDATABASE_URL_PROD
+    availability:
+      - RUNTIME
+  - variable: JWT_SECRET
+    secret: SIGMO_JWT_SECRET_PROD
+    availability:
+      - RUNTIME
+  - variable: ADMIN_EMAIL_ALLOWLIST
+    secret: ADMIN_EMAIL_ALLOWLIST
     availability:
       - RUNTIME
