@@ -1,59 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, extractTokenFromRequest } from '@/lib/auth';
-import { userManager } from '@/storage/database';
+import { verifyAdmin } from '@/app/api/middleware';
+import { getFirebaseAdminAuth } from '@/lib/firebase-admin';
+import { normalizeEmail, setAdminAccess } from '@/lib/admin-auth';
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ email: string }> }
 ) {
   try {
+    const adminCheck = await verifyAdmin(request);
+    if (!adminCheck.success) {
+      return NextResponse.json(
+        { error: adminCheck.error || 'Only admin can promote users' },
+        { status: adminCheck.error === 'Unauthorized' ? 401 : 403 }
+      );
+    }
+
     const params = await context.params;
-    const targetEmail = params.email;
-
-    // 验证请求者是管理员
-    const token = extractTokenFromRequest(request);
-    if (!token) {
+    const targetEmail = normalizeEmail(decodeURIComponent(params.email || ''));
+    if (!targetEmail) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
+        { error: 'Target email is required' },
+        { status: 400 }
       );
     }
 
-    const payload = verifyToken(token);
-    if (!payload || !payload.isAdmin) {
-      return NextResponse.json(
-        { error: 'Only admin can promote users' },
-        { status: 403 }
-      );
+    let targetUser;
+    try {
+      targetUser = await getFirebaseAdminAuth().getUserByEmail(targetEmail);
+    } catch (error) {
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? String((error as { code?: unknown }).code ?? '')
+          : '';
+
+      if (code === 'auth/user-not-found') {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        );
+      }
+
+      throw error;
     }
 
-    // 检查目标用户是否存在
-    const targetUser = await userManager.getUserByEmail(targetEmail);
-    if (!targetUser) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    // 升级为管理员
-    const updatedUser = await userManager.updateUser(targetUser.id, {
+    const updatedUser = await setAdminAccess({
+      email: targetEmail,
+      uid: targetUser.uid,
+      name: targetUser.displayName ?? undefined,
       isAdmin: true,
+      grantedByEmail: adminCheck.email,
+      source: 'directory',
     });
-
-    if (!updatedUser) {
-      return NextResponse.json(
-        { error: 'Failed to promote user' },
-        { status: 500 }
-      );
-    }
 
     return NextResponse.json({
       success: true,
       user: {
-        id: updatedUser.id,
+        id: updatedUser.uid ?? targetUser.uid,
         email: updatedUser.email,
-        name: updatedUser.name,
+        name: updatedUser.name ?? targetUser.displayName ?? targetEmail,
         isAdmin: updatedUser.isAdmin,
       },
     });

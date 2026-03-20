@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateToken } from '@/lib/auth';
-import { isAdminEmailAllowed, verifyFirebaseIdToken } from '@/lib/admin-auth';
+import { normalizeEmail, resolveAdminAccess, verifyFirebaseIdToken } from '@/lib/admin-auth';
 import { isLocalDevAdminLoginEnabled } from '@/lib/firebase-config';
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
 
 function extractIdToken(request: NextRequest, body: unknown): string | null {
   if (typeof body === 'object' && body !== null && 'idToken' in body) {
@@ -49,7 +45,7 @@ function extractEmailPassword(body: unknown): { email: string; password: string 
   };
 }
 
-function buildAdminResponse(email: string, userId: string) {
+function buildAdminResponse(email: string, userId: string, name?: string) {
   const token = generateToken({
     userId,
     email,
@@ -63,7 +59,7 @@ function buildAdminResponse(email: string, userId: string) {
     user: {
       id: userId,
       email,
-      name: email,
+      name: name || email,
       isAdmin: true,
     },
   });
@@ -89,13 +85,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
-      );
-    }
-
-    if (!isAdminEmailAllowed(emailPassword.email)) {
-      return NextResponse.json(
-        { error: 'No admin permission' },
-        { status: 403 }
       );
     }
 
@@ -133,12 +122,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isAdminEmailAllowed(email)) {
+  const access = await resolveAdminAccess({
+    email,
+    uid: verified.user.uid,
+    name: verified.user.name,
+    claimsAdmin: verified.user.claimsAdmin,
+  });
+
+  if (!access.allowed) {
     return NextResponse.json(
       { error: 'No admin permission' },
       { status: 403 }
     );
   }
 
-  return buildAdminResponse(email, verified.user.uid);
+  return buildAdminResponse(email, verified.user.uid, verified.user.name);
 }

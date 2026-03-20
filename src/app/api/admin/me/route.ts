@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, extractTokenFromRequest } from '@/lib/auth';
-import { isAdminEmailAllowed } from '@/lib/admin-auth';
+import { resolveAdminAccess } from '@/lib/admin-auth';
 
 export async function GET(request: NextRequest) {
   const token = extractTokenFromRequest(request);
@@ -19,7 +19,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!payload.email || !payload.isAdmin || !isAdminEmailAllowed(payload.email)) {
+  if (!payload.email || !payload.isAdmin) {
+    return NextResponse.json(
+      { error: 'No admin permission' },
+      { status: 403 }
+    );
+  }
+
+  const access = await resolveAdminAccess({
+    email: payload.email,
+    uid: payload.userId,
+  });
+
+  if (!access.allowed) {
     return NextResponse.json(
       { error: 'No admin permission' },
       { status: 403 }

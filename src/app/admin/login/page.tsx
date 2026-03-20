@@ -80,10 +80,10 @@ export default function AdminLoginPage() {
     language === 'zh'
       ? '当前为本地开发模式，未接入真实 Firebase。请使用 .env.local 中配置的本地管理员邮箱和密码登录。'
       : 'Local development mode is active. Firebase is not configured, so use the admin email and password from .env.local.';
-  const localDevAllowlistMessage =
+  const localDevAccessMessage =
     language === 'zh'
-      ? '提示：邮箱还需要在 ADMIN_EMAIL_ALLOWLIST 中。'
-      : 'Note: the email must also be present in ADMIN_EMAIL_ALLOWLIST.';
+      ? '提示：本地开发模式下会直接使用 .env.local 中的管理员账号。'
+      : 'Note: local development mode uses the admin credentials from .env.local.';
   const googleUnavailableMessage =
     language === 'zh'
       ? '本地开发模式下未配置 Firebase，Google 登录不可用。'
@@ -223,8 +223,8 @@ export default function AdminLoginPage() {
                 <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-md">
                   <strong>Note:</strong>{' '}
                   {useLocalDevLogin
-                    ? localDevAllowlistMessage
-                    : 'If login fails, ask an admin to confirm your email is in the allowlist.'}
+                    ? localDevAccessMessage
+                    : 'If login fails, ask an existing admin to grant your account admin access.'}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? t('admin.signingIn') : t('admin.signIn')}

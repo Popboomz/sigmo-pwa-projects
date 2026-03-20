@@ -3,7 +3,7 @@ import { protocolManager } from '@/storage/database';
 import { eq } from 'drizzle-orm';
 import { getDb } from 'coze-coding-dev-sdk';
 import { questionnaires, questionnaireAnswers, logs } from '@/storage/database/shared/schema';
-import { verifyToken, extractTokenFromRequest } from '@/lib/auth';
+import { verifyAdmin } from '@/app/api/middleware';
 import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
 import { deleteLocalProtocol, getLocalProtocolById } from '@/lib/local-admin-store';
 
@@ -12,19 +12,11 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const token = extractTokenFromRequest(request);
-    if (!token) {
+    const adminCheck = await verifyAdmin(request);
+    if (!adminCheck.success) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
-    if (!payload || !payload.isAdmin) {
-      return NextResponse.json(
-        { error: 'No admin permission' },
-        { status: 403 }
+        { error: adminCheck.error || 'No admin permission' },
+        { status: adminCheck.error === 'Unauthorized' ? 401 : 403 }
       );
     }
 
