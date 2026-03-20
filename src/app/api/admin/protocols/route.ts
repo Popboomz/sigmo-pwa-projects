@@ -3,8 +3,7 @@ import { protocolManager, questionnaireManager } from '@/storage/database';
 import { dynamicQuestionnaireGenerator } from '@/storage/database/dynamicQuestionnaireGenerator';
 import { isLocalDevDatabaseFallbackEnabled } from '@/lib/local-dev-db';
 import { createLocalProtocol, listLocalProtocols } from '@/lib/local-admin-store';
-
-const ADMIN_USER_ID = '00000000-0000-0000-0000-000000000001';
+import { verifyAdmin } from '@/app/api/middleware';
 
 export async function GET(_request: NextRequest) {
   try {
@@ -30,6 +29,14 @@ export async function GET(_request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const adminCheck = await verifyAdmin(request);
+    if (!adminCheck.success || !adminCheck.userId) {
+      return NextResponse.json(
+        { error: adminCheck.error || 'No admin permission' },
+        { status: adminCheck.error === 'Unauthorized' ? 401 : 403 }
+      );
+    }
+
     const body = await request.json();
     const {
       title,
@@ -54,7 +61,7 @@ export async function POST(request: NextRequest) {
         shareLink,
         productName,
         testPeriodDays,
-        createdBy: ADMIN_USER_ID,
+        createdBy: adminCheck.userId,
       });
 
       return NextResponse.json({
@@ -70,7 +77,7 @@ export async function POST(request: NextRequest) {
       shareLink,
       productName,
       testPeriodDays,
-      createdBy: ADMIN_USER_ID,
+      createdBy: adminCheck.userId,
     });
 
     generateQuestionnairesAsync(protocol.id, productName, testPeriodDays);

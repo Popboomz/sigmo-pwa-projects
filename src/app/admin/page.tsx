@@ -187,10 +187,12 @@ export default function AdminDashboardPage() {
     setIsCreatingProtocol(true);
 
     try {
+      const token = localStorage.getItem('admin_token');
       const response = await fetch('/api/admin/protocols', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: newProtocolTitle,
@@ -201,6 +203,14 @@ export default function AdminDashboardPage() {
       });
 
       const data = await response.json();
+      if (!response.ok || !data.success) {
+        shadcnToast({
+          title: '鍒涘缓澶辫触',
+          description: data.error || '璇风◢鍚庨噸璇?',
+        });
+        return;
+      }
+
       if (data.success) {
         setNewProtocolTitle('');
         setNewProtocolDesc('');
